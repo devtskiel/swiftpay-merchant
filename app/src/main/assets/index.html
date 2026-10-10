@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>FastPay Merchant Portal</title>
+    <style>
+        :root {
+            --fp-blue: #0052CC;
+            --fp-navy: #002B5B;
+            --fp-sky: #E0F2FE;
+            --fp-accent: #00BFFF;
+            --surface: #FFFFFF;
+            --bg-gray: #F8F9FA;
+            --text-main: #091E42;
+            --text-muted: #5E6C84;
+            --radius-xl: 32px;
+            --radius-lg: 20px;
+            --radius-md: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            background-color: var(--bg-gray);
+            color: var(--text-main);
+            overflow-x: hidden;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .page {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-gray);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            transform: translate3d(100%, 0, 0);
+            transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+            visibility: hidden;
+        }
+
+        .page.active {
+            transform: translate3d(0, 0, 0);
+            visibility: visible;
+        }
+
+        .navbar {
+            padding: 0 16px;
+            background: white;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            height: 56px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .btn-back {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--fp-navy);
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .navbar-title {
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--fp-navy);
+            margin-left: 8px;
+        }
+
+        .page-content {
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .hero {
+            background: var(--fp-navy);
+            padding: 40px 24px 60px;
+            color: white;
+            text-align: center;
+            border-bottom-left-radius: var(--radius-xl);
+            border-bottom-right-radius: var(--radius-xl);
+        }
+
+        .hero-logo {
+            width: 64px;
+            height: 64px;
+            background: white;
+            border-radius: 18px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .balance-badge {
+            background: rgba(255,255,255,0.12);
+            padding: 12px 24px;
+            border-radius: 100px;
+            display: inline-block;
+            margin-bottom: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+        }
+
+        .balance-amount {
+            font-size: 38px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 24px;
+        }
+
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: -30px;
+            padding: 0 24px;
+        }
+
+        .action-card {
+            background: var(--surface);
+            padding: 20px;
+            border-radius: var(--radius-lg);
+            box-shadow: 0 10px 30px rgba(9,30,66,0.08);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-main);
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+
+        .action-card:active {
+            transform: scale(0.96);
+        }
+
+        .action-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: var(--fp-sky);
+            color: var(--fp-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .action-title {
+            font-weight: 700;
+            font-size: 15px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 800;
+            margin: 24px 0 12px;
+            color: var(--fp-navy);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modern-input {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid #DFE1E6;
+            border-radius: var(--radius-md);
+            font-size: 16px;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+        }
+
+        .modern-input:focus {
+            border-color: var(--fp-blue);
+        }
+
+        .btn-action {
+            width: 100%;
+            background: var(--fp-blue);
+            color: white;
+            border: none;
+            padding: 18px;
+            border-radius: var(--radius-md);
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0,82,204,0.28);
+            transition: all 0.2s ease;
+        }
+
+        .btn-action:active {
+            opacity: 0.9;
+            transform: scale(0.98);
+        }
+
+        .btn-action:disabled {
+            background: #A5C7FF;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .api-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            border: 1px solid #EBECF0;
+        }
+
+        .api-key-val {
+            font-family: monospace;
+            background: #F4F5F7;
+            padding: 8px 12px;
+            border-radius: 6px;
+            word-break: break-all;
+            font-size: 13px;
+            color: #172B4D;
+            margin-top: 6px;
+        }
+
+        .hidden { display: none; }
+
+        .input-group {
+            margin-bottom: 16px;
+            text-align: left;
+        }
+
+        .input-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .tap-pay-card {
+            background: white;
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.04);
+            border: 1px solid #E2E8F0;
+        }
+
+        .amount-field {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 12px;
+        }
+
+        .amount-currency {
+            font-size: 36px;
+            font-weight: 800;
+            color: var(--fp-blue);
+            margin-right: 8px;
+        }
+
+        .amount-input {
+            border: none;
+            font-size: 42px;
+            font-weight: 800;
+            color: var(--fp-navy);
+            width: 200px;
+            text-align: center;
+            outline: none;
+        }
+
+        .preset-chip {
+            background: var(--fp-sky);
+            color: var(--fp-blue);
+            border: none;
+            padding: 10px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .preset-chip:active {
+            background: var(--fp-blue);
+            color: white;
+        }
+
+        .channel-grid {
+            display: grid;
+            grid-template-columns: repeat(1, 1fr);
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .channel-card {
+            background: white;
+            border: 2px solid #E2E8F0;
+            border-radius: 18px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .channel-card.selected {
+            border-color: var(--fp-blue);
+            background: #F0F7FF;
+            box-shadow: 0 4px 14px rgba(0,82,204,0.12);
+        }
+
+        .channel-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: #F8FAFC;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            border: 1px solid #E2E8F0;
+        }
+
+        .channel-info {
+            flex: 1;
+            text-align: left;
+        }
+
+        .channel-title {
+            font-weight: 700;
+            font-size: 15px;
+            color: var(--fp-navy);
+        }
+
+        .channel-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .summary-card {
+            background: white;
+            border-radius: 18px;
+            padding: 18px;
+            border: 1px solid #E2E8F0;
+            margin-top: 20px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .summary-row.total {
+            border-top: 1px dashed #E2E8F0;
+            padding-top: 12px;
+            margin-top: 8px;
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--fp-navy);
+            margin-bottom: 0;
+        }
+
+        .security-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #10B981;
+            font-weight: 700;
+            margin-top: 16px;
+            background: #ECFDF5;
+            padding: 10px 16px;
+            border-radius: 100px;
+            border: 1px solid #A7F3D0;
+        }
+
+        .nfc-status-card {
+            background: #F1F5F9;
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .nfc-status-card.is-active {
+            background: #E0F2FE;
+            color: var(--fp-blue);
+        }
+
+        .nfc-status-card.is-success {
+            background: #DCFCE7;
+            color: #15803D;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main Dashboard Hero -->
+    <div class="hero">
+        <div class="hero-logo">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0052CC" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+        </div>
+        <div class="balance-badge">SwiftPay Real-Time Account</div>
+        <div id="balance-display" class="balance-amount">₱ --.--</div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="action-grid">
+        <div class="action-card" onclick="openPage('topup-page')">
+            <div class="action-icon">➕</div>
+            <div class="action-title">Wallet Top Up</div>
+        </div>
+        <div class="action-card" onclick="openPage('card-payment-page')">
+            <div class="action-icon">💳</div>
+            <div class="action-title">Tap to Pay (NFC)</div>
+        </div>
+        <div class="action-card" onclick="openPage('qr-page')">
+            <div class="action-icon">📱</div>
+            <div class="action-title">QR Ph Code</div>
+        </div>
+        <div class="action-card" onclick="openPage('disbursement-page')">
+            <div class="action-icon">💸</div>
+            <div class="action-title">Send Money</div>
+        </div>
+    </div>
+
+    <!-- API Credentials Panel -->
+    <div class="page-content">
+        <div class="section-title">
+            <span>SwiftPay Credentials</span>
+            <span style="font-size: 13px; color: var(--fp-blue); cursor: pointer;" onclick="openPage('api-docs-page')">Edit Settings</span>
+        </div>
+
+        <div class="api-card">
+            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">API ACCESS KEY</div>
+            <div id="api-pub-key" class="api-key-val">Loading...</div>
+
+            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin-top: 12px;">BASE URL</div>
+            <div id="api-sec-key" class="api-key-val">Loading...</div>
+
+            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin-top: 12px;">MERCHANT ID</div>
+            <div id="api-mid" class="api-key-val">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Self Hosted Wallet Top Up Page -->
+    <div id="topup-page" class="page">
+        <div class="navbar">
+            <div class="btn-back" onclick="closePage('topup-page')" aria-label="Go back">‹</div>
+            <span class="navbar-title">Wallet Top Up</span>
+            <div style="margin-left:auto; font-size:11px; background:#DCFCE7; color:#15803D; font-weight:800; padding:6px 12px; border-radius:100px;">
+                🔒 SSL Encrypted
+            </div>
+        </div>
+        <div class="page-content">
+            <div class="tap-pay-card">
+                <div class="input-label" style="text-align:center;">Enter Top Up Amount</div>
+                <div class="amount-field">
+                    <div class="amount-currency">₱</div>
+                    <input type="number" id="topup-amount" class="amount-input" placeholder="0.00" oninput="updateTopUpSummary()">
+                </div>
+                <div class="amount-presets" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px">
+                    <button class="preset-chip" onclick="setTopUpPreset(500)">500</button>
+                    <button class="preset-chip" onclick="setTopUpPreset(1000)">1K</button>
+                    <button class="preset-chip" onclick="setTopUpPreset(2500)">2.5K</button>
+                    <button class="preset-chip" onclick="setTopUpPreset(5000)">5K</button>
+                </div>
+            </div>
+
+            <div class="section-title">Select Payment Channel</div>
+            <div class="channel-grid">
+                <div class="channel-card selected" id="channel-swiftpay" onclick="selectChannel('swiftpay', 'SWIFTPAY_CHECKOUT')">
+                    <div class="channel-icon">⚡</div>
+                    <div class="channel-info">
+                        <div class="channel-title">SwiftPay Universal Checkout</div>
+                        <div class="channel-desc">Instant 1-Click Pay via GCash, Maya, Cards & QR Ph</div>
+                    </div>
+                    <input type="radio" name="topup-opt" checked style="accent-color:var(--fp-blue)">
+                </div>
+
+                <div class="channel-card" id="channel-gcash" onclick="selectChannel('gcash', 'GCASH')">
+                    <div class="channel-icon">💙</div>
+                    <div class="channel-info">
+                        <div class="channel-title">GCash Direct</div>
+                        <div class="channel-desc">Top up directly via your GCash E-Wallet</div>
+                    </div>
+                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
+                </div>
+
+                <div class="channel-card" id="channel-maya" onclick="selectChannel('maya', 'MAYA')">
+                    <div class="channel-icon">💚</div>
+                    <div class="channel-info">
+                        <div class="channel-title">Maya Wallet</div>
+                        <div class="channel-desc">Instant cash-in from Maya account</div>
+                    </div>
+                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
+                </div>
+
+                <div class="channel-card" id="channel-qrph" onclick="selectChannel('qrph', 'QRPH')">
+                    <div class="channel-icon">📱</div>
+                    <div class="channel-info">
+                        <div class="channel-title">QR Ph Instant Scan</div>
+                        <div class="channel-desc">Scan with BDO, BPI, UnionBank, Metrobank & all PH banks</div>
+                    </div>
+                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
+                </div>
+
+                <div class="channel-card" id="channel-card" onclick="selectChannel('card', 'CARD')">
+                    <div class="channel-icon">💳</div>
+                    <div class="channel-info">
+                        <div class="channel-title">Credit / Debit Card</div>
+                        <div class="channel-desc">Visa, Mastercard, JCB, American Express</div>
+                    </div>
+                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
+                </div>
+            </div>
+
+            <div class="summary-card">
+                <div class="summary-row">
+                    <span>Top Up Amount</span>
+                    <span id="sum-amount">₱ 0.00</span>
+                </div>
+                <div class="summary-row">
+                    <span>Processing Fee</span>
+                    <span style="color:#10B981; font-weight:700;">FREE (₱ 0.00)</span>
+                </div>
+                <div class="summary-row total">
+                    <span>Total Payable</span>
+                    <span id="sum-total">₱ 0.00</span>
+                </div>
+            </div>
+
+            <div class="security-badge">
+                <span>🛡️ PCI-DSS Level 1 Certified • 256-bit SSL Security</span>
+            </div>
+
+            <button class="btn-action" id="topup-submit-btn" onclick="executeTopUp()" style="margin-top:20px">
+                <span id="topup-btn-label">Top Up via SwiftPay</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Hidden Sub-pages -->
+    <div id="api-docs-page" class="page">
+        <div class="navbar">
+            <div class="btn-back" onclick="closePage('api-docs-page')">‹</div>
+            <span class="navbar-title">SwiftPay API Settings</span>
+        </div>
+        <div class="page-content">
+            <div class="section-title">Gateway Settings</div>
+
+            <div class="api-card">
+                <div class="input-group">
+                    <label class="input-label">SWIFTPAY ACCESS KEY</label>
+                    <input type="text" id="setting-apiKey" class="modern-input" placeholder="Enter SwiftPay Access Key">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">SWIFTPAY BASE URL</label>
+                    <input type="text" id="setting-baseUrl" class="modern-input" placeholder="https://api.pay.live.swiftpay.ph/api">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">MERCHANT ID</label>
+                    <input type="text" id="setting-merchantId" class="modern-input" placeholder="Enter Merchant ID">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">TERMINAL ID</label>
+                    <input type="text" id="setting-terminalId" class="modern-input" placeholder="Enter Terminal ID">
+                </div>
+                <button class="btn-action" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-link-page" class="page">
+        <div class="navbar">
+            <div class="btn-back" onclick="closePage('payment-link-page')">‹</div>
+            <span class="navbar-title">Payment Link Generator</span>
+        </div>
+        <div class="page-content">
+            <div class="input-group">
+                <label class="input-label">Description / Order Name</label>
+                <input type="text" id="link-desc" class="modern-input" placeholder="Item or Service Name">
+            </div>
+            <div class="input-group">
+                <label class="input-label">Amount (₱)</label>
+                <input type="number" id="link-amount" class="modern-input" placeholder="0.00">
+            </div>
+            <button class="btn-action" onclick="generateLink()">Create SwiftPay Link</button>
+        </div>
+    </div>
+
+    <div id="qr-page" class="page">
+        <div class="navbar">
+            <div class="btn-back" onclick="closePage('qr-page')">‹</div>
+            <span class="navbar-title">QR Ph Dynamic Code</span>
+        </div>
+        <div class="page-content" style="text-align:center">
+            <div class="input-group" style="text-align:left">
+                <label class="input-label">Amount (₱)</label>
+                <input type="number" id="qr-amount" class="modern-input" placeholder="0.00">
+            </div>
+            <button class="btn-action" onclick="generateQR()">Generate QR Ph Code</button>
+            <div id="qr-container" class="hidden" style="margin-top:32px;background:#fff;padding:24px;border-radius:24px">
+                <img id="qr-code-img" src="" style="width:200px">
+                <div style="margin-top:16px;font-weight:800;color:var(--fp-blue)">Ready to scan with any QR Ph app</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="card-payment-page" class="page">
+        <div class="navbar">
+            <div class="btn-back" onclick="closePage('card-payment-page')">‹</div>
+            <span class="navbar-title">Tap to Pay (NFC)</span>
+        </div>
+        <div class="page-content">
+            <div class="tap-pay-card">
+                <div class="input-label">Enter Amount</div>
+                <div class="amount-field">
+                    <div class="amount-currency">₱</div>
+                    <input type="number" id="card-amount" class="amount-input" placeholder="0.00" oninput="updateTapPayPreview()">
+                </div>
+                <div class="amount-presets" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px">
+                    <button class="preset-chip" onclick="setAmountPreset(100)">100</button>
+                    <button class="preset-chip" onclick="setAmountPreset(500)">500</button>
+                    <button class="preset-chip" onclick="setAmountPreset(1000)">1K</button>
+                    <button class="preset-chip" onclick="setAmountPreset(5000)">5K</button>
+                </div>
+            </div>
+            <div id="nfc-status" class="nfc-status-card" style="margin-top:20px">
+                <div id="nfc-status-text" class="card-title">Reader Ready</div>
+            </div>
+            <button class="btn-action" id="nfc-start-btn" onclick="startNfcPay()" style="margin-top:24px">
+                <span id="nfc-start-label">Start NFC Reader</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="disbursement-page" class="page">
+        <div class="navbar">
+            <div class="btn-back" onclick="closePage('disbursement-page')">‹</div>
+            <span class="navbar-title">SwiftPay Send Money</span>
+        </div>
+        <div class="page-content">
+            <div class="input-group">
+                <label class="input-label">Destination Bank / E-Wallet</label>
+                <select id="disb-bank" class="modern-input" style="background:#fff;">
+                    <option value="GCASH">GCash</option>
+                    <option value="MAYA">Maya Wallet</option>
+                    <option value="GRABPAY">GrabPay</option>
+                    <option value="BDO">BDO Unibank</option>
+                    <option value="BPI">Bank of the Philippine Islands (BPI)</option>
+                    <option value="UNIONBANK">UnionBank</option>
+                    <option value="METROBANK">Metrobank</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label class="input-label">Account / Mobile Number</label>
+                <input type="text" id="disb-acc" class="modern-input" placeholder="e.g. 09171234567 or Account No.">
+            </div>
+            <div class="input-group">
+                <label class="input-label">Recipient Name</label>
+                <input type="text" id="disb-name" class="modern-input" placeholder="First and Last Name">
+            </div>
+            <div class="input-group">
+                <label class="input-label">Amount (₱)</label>
+                <input type="number" id="disb-amount" class="modern-input" placeholder="0.00">
+            </div>
+            <button class="btn-action" onclick="sendDisbursement()">Confirm Transfer</button>
+        </div>
+    </div>
+
+    <script>
+        let selectedTopUpChannel = 'SWIFTPAY_CHECKOUT';
+
+        function post(action, data = null) {
+            const sdk = window.SwiftPaySDK || window.MayaSDK;
+            if (sdk) sdk.postMessage(JSON.stringify({ action, data }));
+        }
+        function openPage(id) {
+            const p = document.getElementById(id); if (p) p.classList.add('active');
+            if (id === 'api-docs-page') post("get_settings");
+        }
+        function closePage(id) { const p = document.getElementById(id); if (p) p.classList.remove('active'); }
+        function getBalance() { post("get_balance"); }
+        function setAmountPreset(a) { document.getElementById('card-amount').value = a; updateTapPayPreview(); }
+        function updateTapPayPreview() {}
+        function setNfcStatus(s, t) { const sc = document.getElementById('nfc-status'); sc.className = `nfc-status-card is-visible is-${s}`; document.getElementById('nfc-status-text').innerText = t; }
+        function setNfcLoading(l) { const b = document.getElementById('nfc-start-btn'); b.disabled = l; document.getElementById('nfc-start-label').innerText = l ? 'Arming Reader...' : 'Start NFC Reader'; }
+        function startNfcPay() { const a = parseFloat(document.getElementById('card-amount').value); if (a > 0) { setNfcStatus('active', 'Preparing Reader'); setNfcLoading(true); post("scan_nfc_card", { amount: a }); } }
+        function generateQR() { const a = document.getElementById('qr-amount').value; if (a > 0) post("generate_dynamic_qr", { amount: parseFloat(a) }); }
+        function generateLink() { const a = parseFloat(document.getElementById('link-amount').value) || 0; const d = document.getElementById('link-desc').value || "Payment Link"; post("create_payment_link", { currency: "PHP", description: d, amount: a }); }
+
+        function setTopUpPreset(a) {
+            document.getElementById('topup-amount').value = a;
+            updateTopUpSummary();
+        }
+        function selectChannel(id, val) {
+            selectedTopUpChannel = val;
+            document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('selected'));
+            document.querySelectorAll('.channel-card input').forEach(i => i.checked = false);
+            const target = document.getElementById('channel-' + id);
+            if (target) {
+                target.classList.add('selected');
+                const radio = target.querySelector('input');
+                if (radio) radio.checked = true;
+            }
+        }
+        function updateTopUpSummary() {
+            const a = parseFloat(document.getElementById('topup-amount').value) || 0;
+            const formatted = "₱ " + a.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('sum-amount').innerText = formatted;
+            document.getElementById('sum-total').innerText = formatted;
+            document.getElementById('topup-btn-label').innerText = a > 0 ? `Pay ${formatted} via SwiftPay` : "Top Up via SwiftPay";
+        }
+        function executeTopUp() {
+            const a = parseFloat(document.getElementById('topup-amount').value) || 0;
+            if (a > 0) {
+                document.getElementById('topup-submit-btn').disabled = true;
+                document.getElementById('topup-btn-label').innerText = "Connecting to SwiftPay Gateway...";
+                post("request_payment", { amount: a, currency: "PHP", description: "SwiftPay Wallet Top Up" });
+                setTimeout(() => {
+                    document.getElementById('topup-submit-btn').disabled = false;
+                    updateTopUpSummary();
+                }, 3000);
+            }
+        }
+
+        function sendDisbursement() {
+            const a = parseFloat(document.getElementById('disb-amount').value) || 0;
+            const b = document.getElementById('disb-bank').value || "GCASH";
+            const acc = document.getElementById('disb-acc').value || "";
+            const name = document.getElementById('disb-name').value || "Recipient";
+            if (a > 0 && acc.length > 0) {
+                post("send_disbursement", { amount: a, bankCode: b, accountNumber: acc, recipientName: name });
+            }
+        }
+        function saveSettings() {
+            const apiKey = document.getElementById('setting-apiKey').value;
+            const baseUrl = document.getElementById('setting-baseUrl').value;
+            const merchantId = document.getElementById('setting-merchantId').value;
+            const terminalId = document.getElementById('setting-terminalId').value;
+            post("save_settings", { apiKey, baseUrl, merchantId, terminalId });
+        }
+
+        window.onSwiftPayResponse = window.onMayaResponse = function(json) {
+            const res = JSON.parse(json);
+            if (typeof res.data === 'number') { document.getElementById('balance-display').innerText = "₱ " + res.data.toLocaleString(undefined, {minimumFractionDigits: 2}); return; }
+            if (res.data && res.data.status) {
+                const s = res.data.status.toLowerCase();
+                if (s === 'success' || s === 'captured' || s === 'approved') {
+                    setNfcStatus('success', 'Completed');
+                    setNfcLoading(false);
+                    setTimeout(getBalance, 500);
+                }
+            }
+            if (res.data && res.data.qrCodeBody) {
+                document.getElementById('qr-container').classList.remove('hidden');
+                document.getElementById('qr-code-img').src = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=" + encodeURIComponent(res.data.qrCodeBody);
+            }
+            if (res.data && (res.data.apiKey || res.data.hasApiKey)) {
+                if (res.data.apiKey) document.getElementById('api-pub-key').innerText = res.data.apiKey;
+                if (res.data.baseUrl) document.getElementById('api-sec-key').innerText = res.data.baseUrl;
+                if (res.data.merchantId) document.getElementById('api-mid').innerText = res.data.merchantId;
+            }
+        };
+        setTimeout(getBalance, 800);
+    </script>
+</body>
+</html>
