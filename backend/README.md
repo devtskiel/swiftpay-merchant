@@ -14,7 +14,7 @@ npm start
 
 The API refuses to start without SwiftPay credentials, an allowlist, a session-signing key, and a Resend key/from address. Sign-in codes are sent only to `AUTH_ALLOWED_EMAILS`; non-allowlisted addresses receive the same accepted response without an email. Codes expire after ten minutes, are single-use, and allow five attempts. The server issues an eight-hour scoped JWT after successful verification.
 
-Set Android `PAYMENT_BACKEND_URL` to this service’s HTTPS base URL. This is separate from `APP_SERVER_URL`, which remains reserved for the existing device-approval service. Android debug builds default to the emulator host `http://10.0.2.2:3000/` when `PAYMENT_BACKEND_URL` is unset; release builds require an explicit HTTPS URL.
+Set Android `PAYMENT_BACKEND_URL` to this service’s HTTPS base URL. Android debug builds default to the emulator host `http://10.0.2.2:3000/` when `PAYMENT_BACKEND_URL` is unset; release builds default to `https://swiftpay-merchant.onrender.com/` and can be overridden with a Gradle property, environment variable, or `local.properties` value.
 
 - `swiftpay:payments:read`
 - `swiftpay:payments:write`
@@ -45,4 +45,4 @@ Deploy behind HTTPS, keep the environment variables in a secrets manager, and co
 
 ## Render
 
-The repository-root `render.yaml` defines a Docker web service that defaults to the SwiftPay sandbox. In Render, create a Blueprint from this repository and provide the prompted sandbox credentials, session-signing key, allowed operator email, and verified Resend settings. After deployment, use the service's HTTPS URL as Android `PAYMENT_BACKEND_URL`. This does not configure the separate device-approval `APP_SERVER_URL`.
+The repository-root `render.yaml` defines the live SwiftPay Docker web service. In Render, provide the rotated production credentials, session-signing key, allowed operator email, and verified Resend settings as secrets. The Android release build defaults to the service HTTPS URL as `PAYMENT_BACKEND_URL`.

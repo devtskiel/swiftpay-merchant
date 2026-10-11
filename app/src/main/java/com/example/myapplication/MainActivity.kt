@@ -34,13 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
-import com.example.myapplication.data.ApprovalService
 import com.example.myapplication.data.SessionManager
 import com.example.myapplication.data.SettingsManager
 import com.example.myapplication.navigation.Route
 import com.example.myapplication.ui.screens.ApiDocsScreen
 import com.example.myapplication.ui.screens.ApiKeysScreen
-import com.example.myapplication.ui.screens.ApprovalsScreen
 import com.example.myapplication.ui.screens.HomeScreen
 import com.example.myapplication.ui.screens.LoginScreen
 import com.example.myapplication.ui.screens.MiniAppScreen
@@ -114,7 +112,6 @@ fun SwiftPayApp() {
     val context = LocalContext.current
     val settings = remember { SettingsManager(context) }
     val sessionManager = remember { SessionManager(context, settings) }
-    val approvalService: ApprovalService = remember { ApprovalService() }
     val isLoggedInFlag by settings.isLoggedIn.collectAsState(initial = false)
     val backendAccessToken by settings.backendAccessToken.collectAsState(initial = null)
     val isLoggedIn = isLoggedInFlag && !backendAccessToken.isNullOrBlank()
@@ -125,25 +122,6 @@ fun SwiftPayApp() {
 
     val backStack = remember { mutableStateListOf<Route>(if (isLoggedIn) Route.Home else Route.Login) }
     val currentRoute = backStack.lastOrNull() ?: Route.Login
-
-    androidx.compose.runtime.LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn) {
-            val sess = sessionManager.getCurrentSessionToken()
-            if (sess != null && sess.isPrimaryDevice) {
-                while (true) {
-                    kotlinx.coroutines.delay(3000)
-                    try {
-                        val pending = approvalService.getApprovals(sess.email)
-                        if (pending.isNotEmpty()) {
-                            val req = pending.first()
-                            DebugLogger.logApprovalRequested(req.email, req.deviceId)
-                        }
-                    } catch (_: Exception) {
-                    }
-                }
-            }
-        }
-    }
 
     androidx.compose.runtime.LaunchedEffect(isLoggedIn) {
         if (isLoggedIn && backStack.contains(Route.Login)) {
@@ -294,9 +272,6 @@ fun SwiftPayApp() {
                         }
                         Route.ApiDocs -> NavEntry(key) {
                             ApiDocsScreen()
-                        }
-                        Route.Approvals -> NavEntry(key) {
-                            ApprovalsScreen()
                         }
                         Route.Wallet -> NavEntry(key) {
                             WalletScreen()

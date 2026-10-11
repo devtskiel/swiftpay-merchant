@@ -9,9 +9,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: SWIFTPAY_BASE_URL
-        value: https://api.pay.sandbox.live.swiftpay.ph/api/
+        value: https://api.pay.live.swiftpay.ph/api/
       - key: SWIFTPAY_ALLOW_LIVE
-        value: "false"
+        value: "true"
       - key: SWIFTPAY_ACCESS_KEY
         sync: false
       - key: SWIFTPAY_SECRET_KEY

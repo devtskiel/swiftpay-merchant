@@ -230,30 +230,6 @@ fun ProfileScreen() {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { navController.navigate(Route.Approvals) }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isDarkTheme) Color.LightGray.copy(alpha = 0.1f) else FastPayNavy.copy(alpha = 0.05f),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.Notifications, modifier = Modifier.size(20.dp), contentDescription = null, tint = textColor)
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Login Approvals", fontWeight = FontWeight.Bold, color = textColor)
-                            Text("Approve sign-in attempts from other devices", style = MaterialTheme.typography.labelSmall, color = secondaryTextColor)
-                        }
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = textColor)
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp, color = borderColor)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
                             .clickable { navController.navigate(Route.ApiDocs) }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically

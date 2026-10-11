@@ -48,7 +48,7 @@ let merchantsDb = loadJson(MERCHANTS_FILE, {
       kycStatus: "APPROVED",
       accountStatus: "ACTIVE",
       monthlyVolume: 1250000.0,
-      apiKey: "9ECAC66F66164FC1B1358F737C487342",
+      apiKey: process.env.SWIFTPAY_ACCESS_KEY || "",
       balance: 12500.0
     }
   }

@@ -13,19 +13,10 @@ fun optionalProperty(name: String): String {
         ?: ""
 }
 
-// Read a couple of properties at configuration time so we can enforce them for release builds
-val APP_SERVER_URL_PROP: String = providers.gradleProperty("APP_SERVER_URL").orNull
-    ?: providers.environmentVariable("APP_SERVER_URL").orNull
-    ?: localProps.getProperty("APP_SERVER_URL")
-    ?: ""
-val APP_SERVER_KEY_PROP: String = providers.gradleProperty("APP_SERVER_KEY").orNull
-    ?: providers.environmentVariable("APP_SERVER_KEY").orNull
-    ?: localProps.getProperty("APP_SERVER_KEY")
-    ?: ""
 val PAYMENT_BACKEND_URL_PROP: String = providers.gradleProperty("PAYMENT_BACKEND_URL").orNull
     ?: providers.environmentVariable("PAYMENT_BACKEND_URL").orNull
     ?: localProps.getProperty("PAYMENT_BACKEND_URL")
-    ?: ""
+    ?: "https://swiftpay-merchant.onrender.com/"
 
 plugins {
     alias(libs.plugins.android.application)
@@ -47,10 +38,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val appServerKey = optionalProperty("APP_SERVER_KEY")
-
-        buildConfigField("String", "APP_SERVER_URL", "\"${optionalProperty("APP_SERVER_URL")}\"")
-        buildConfigField("String", "APP_SERVER_KEY", "\"${appServerKey}\"")
         buildConfigField("String", "PAYMENT_BACKEND_URL", "\"${optionalProperty("PAYMENT_BACKEND_URL")}\"")
     }
 
@@ -66,21 +53,12 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            buildConfigField("String", "PAYMENT_BACKEND_URL", "\"${PAYMENT_BACKEND_URL_PROP}\"")
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Enforce presence of critical server config for release builds
-            if (APP_SERVER_URL_PROP.isBlank()) {
-                throw GradleException("APP_SERVER_URL must be set in local.properties, environment or gradle properties for release builds")
-            }
-            if (!APP_SERVER_URL_PROP.startsWith("https://")) {
-                throw GradleException("APP_SERVER_URL must use HTTPS for release builds")
-            }
-            if (PAYMENT_BACKEND_URL_PROP.isBlank() || !PAYMENT_BACKEND_URL_PROP.startsWith("https://")) {
-                throw GradleException("PAYMENT_BACKEND_URL must be set and use HTTPS for release builds")
-            }
-            if (APP_SERVER_KEY_PROP.isBlank()) {
-                throw GradleException("APP_SERVER_KEY must be set in local.properties, environment or gradle properties for release builds")
+            if (!PAYMENT_BACKEND_URL_PROP.startsWith("https://")) {
+                throw GradleException("PAYMENT_BACKEND_URL must use HTTPS for release builds")
             }
         }
     }

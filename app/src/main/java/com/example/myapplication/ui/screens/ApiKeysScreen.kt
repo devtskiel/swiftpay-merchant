@@ -36,7 +36,7 @@ fun ApiKeysScreen() {
 
     val backendAccessToken by settings.backendAccessToken.collectAsState(initial = null)
     val aliasFlow = settings.merchantAlias.collectAsState(initial = null)
-    val backendUrl = BuildConfig.APP_SERVER_URL.ifBlank { "Backend URL not configured" }
+    val backendUrl = BuildConfig.PAYMENT_BACKEND_URL.ifBlank { "Backend URL not configured" }
 
     var editingAlias by remember { mutableStateOf(false) }
     var aliasInput by remember(aliasFlow.value) { mutableStateOf(aliasFlow.value ?: "") }

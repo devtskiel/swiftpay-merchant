@@ -28,6 +28,4 @@ sealed interface Route {
     @Serializable
     data object ApiDocs : Route
 
-    @Serializable
-    data object Approvals : Route
 }
