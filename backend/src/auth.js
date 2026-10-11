@@ -16,15 +16,28 @@ export function createJwtVerifier(config) {
   };
 }
 
-export function createOtpAuth(config, { sendEmail, now = Date.now, codeGenerator = () => String(randomInt(0, 1_000_000)).padStart(6, "0") }) {
+export function createOtpAuth(config, {
+  sendEmail,
+  userStore,
+  now = Date.now,
+  codeGenerator = () => String(randomInt(0, 1_000_000)).padStart(6, "0")
+}) {
   const allowedEmails = new Set(config.allowedEmails.map((email) => email.toLowerCase()));
   const challenges = new Map();
   const lastSentAt = new Map();
   const key = new TextEncoder().encode(config.sessionSigningKey);
 
+  async function getActiveUser(email) {
+    if (userStore) {
+      const user = await userStore.getUser(email);
+      return user?.status === "active" ? user : null;
+    }
+    return allowedEmails.has(email) ? { email, role: "merchant", status: "active" } : null;
+  }
+
   async function requestOtp(emailValue) {
     const email = emailValue.trim().toLowerCase();
-    if (!allowedEmails.has(email)) return;
+    if (!await getActiveUser(email)) return;
 
     const previousSentAt = lastSentAt.get(email) || 0;
     if (now() - previousSentAt < 60_000) return;
@@ -49,7 +62,8 @@ export function createOtpAuth(config, { sendEmail, now = Date.now, codeGenerator
   async function verifyOtp(emailValue, code) {
     const email = emailValue.trim().toLowerCase();
     const challenge = challenges.get(email);
-    if (!allowedEmails.has(email) || !challenge || challenge.expiresAt <= now() || challenge.attempts >= 5) {
+    const user = await getActiveUser(email);
+    if (!user || !challenge || challenge.expiresAt <= now() || challenge.attempts >= 5) {
       challenges.delete(email);
       return null;
     }
@@ -59,7 +73,9 @@ export function createOtpAuth(config, { sendEmail, now = Date.now, codeGenerator
     if (!timingSafeEqual(challenge.codeHash, submittedHash)) return null;
     challenges.delete(email);
 
+    const expiresInSeconds = user.role === "super_admin" ? 60 * 60 : 8 * 60 * 60;
     const accessToken = await new SignJWT({
+      role: user.role,
       scope: "swiftpay:payments:read swiftpay:payments:write swiftpay:disbursements:read swiftpay:disbursements:write"
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -67,10 +83,10 @@ export function createOtpAuth(config, { sendEmail, now = Date.now, codeGenerator
       .setIssuer("swiftpay-merchant-backend")
       .setAudience("swiftpay-merchant-api")
       .setIssuedAt()
-      .setExpirationTime("8h")
+      .setExpirationTime(`${expiresInSeconds}s`)
       .sign(key);
 
-    return { accessToken, expiresInSeconds: 8 * 60 * 60, email };
+    return { accessToken, expiresInSeconds, email, role: user.role };
   }
 
   return { requestOtp, verifyOtp };

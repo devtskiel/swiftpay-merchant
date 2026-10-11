@@ -18,6 +18,14 @@ The Render blueprint configures `OTP_FROM_EMAIL` as `SwiftPay <login@swiftpay.si
 
 If sign-in requests return HTTP 503, check the backend logs for the Resend HTTP status and provider error code. Verify the `swiftpay.site` domain is marked verified in the same Resend account as `RESEND_API_KEY`; redeploy after updating the key or sender. The API intentionally returns a generic error and never exposes provider details to the app.
 
+## Super-admin backoffice
+
+The protected dashboard is served at `/admin/`. It uses the existing one-time email sign-in and requires the signed-in address to have the `super_admin` role in PostgreSQL. `SUPER_ADMIN_EMAILS` bootstraps configured administrators; the production blueprint initially assigns `support@swiftpay.site`. Merchant activation, suspension, removal, admin adjustments, and transfers are audited. Removed users remain as records and can be reactivated by adding them again.
+
+The backoffice supports the existing single shared SwiftPay account: balance and disbursement history are shared by all merchant users. An internal balance adjustment is a bookkeeping record only and never changes SwiftPay funds. A submitted transfer is a real InstaPay disbursement; the dashboard requires explicit confirmation and stores an audit intent before contacting the provider.
+
+The Render blueprint provisions a PostgreSQL database (`swiftpay-merchant-db`, `basic-256mb`) and binds `DATABASE_URL` to the backend. Sync the blueprint in Render to create and attach the database before using `/admin/`. Until `DATABASE_URL` is configured, the backend remains available but disables persistent admin access. PostgreSQL stores merchant status, adjustments, and the audit log. Do not use this shared-account deployment as if it provided isolated merchant balances or credentials.
+
 Set Android `PAYMENT_BACKEND_URL` to this service’s HTTPS base URL. Android debug builds default to the emulator host `http://10.0.2.2:3000/` when `PAYMENT_BACKEND_URL` is unset; release builds default to `https://swiftpay-merchant.onrender.com/` and can be overridden with a Gradle property, environment variable, or `local.properties` value.
 
 - `swiftpay:payments:read`
