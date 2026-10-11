@@ -103,7 +103,16 @@ export async function sendOtpEmail(config, email, code, fetchImpl = fetch) {
     const providerCode = [providerError?.name, providerError?.code]
       .find((value) => typeof value === "string" && /^[a-zA-Z0-9_.-]{1,64}$/.test(value));
     const codeDetail = providerCode ? `, ${providerCode}` : "";
-    throw new Error(`OTP email provider rejected request (HTTP ${response.status}${codeDetail})`);
+    const providerMessage = typeof providerError?.message === "string"
+      ? providerError.message
+        .replace(/[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}/g, "[redacted-email]")
+        .replace(/\b(?:re|rnd)_[a-zA-Z0-9_-]+\b/g, "[redacted-key]")
+        .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+        .replace(/[\r\n\t]+/g, " ")
+        .slice(0, 200)
+      : "";
+    const messageDetail = providerMessage ? `: ${providerMessage}` : "";
+    throw new Error(`OTP email provider rejected request (HTTP ${response.status}${codeDetail})${messageDetail}`);
   }
 }
 

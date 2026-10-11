@@ -85,6 +85,7 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
   const requestProvider = (path, options) => callSwiftPay(config, fetchImpl, path, options);
 
   app.disable("x-powered-by");
+  app.set("trust proxy", 1);
   app.use(helmet());
   app.use(express.json({ limit: "32kb", strict: true }));
   app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false }));
