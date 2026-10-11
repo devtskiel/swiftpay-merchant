@@ -238,7 +238,11 @@ fun WalletListContent(
     ) {
         Spacer(Modifier.height(12.dp))
         
-        PremiumBalanceCard(balance)
+        PremiumBalanceCard(
+            balance = balance,
+            errorMessage = viewModel?.walletBalanceError,
+            onRetry = { viewModel?.refreshBalance() }
+        )
 
         Spacer(Modifier.height(32.dp))
 
@@ -289,7 +293,11 @@ fun WalletListContent(
 }
 
 @Composable
-fun PremiumBalanceCard(balance: Double?) {
+fun PremiumBalanceCard(
+    balance: Double?,
+    errorMessage: String? = null,
+    onRetry: () -> Unit = {}
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "cardPulse")
     val shadowOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -368,30 +376,43 @@ fun PremiumBalanceCard(balance: Double?) {
                 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = if (errorMessage == null) Arrangement.End else Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = FastPayGreen.copy(alpha = 0.2f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, FastPayGreen.copy(alpha = 0.3f))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    if (errorMessage != null) {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onRetry) {
+                            Text("RETRY", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = FastPayGreen.copy(alpha = 0.2f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, FastPayGreen.copy(alpha = 0.3f))
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(FastPayGreen, CircleShape)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "ACTIVE",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = FastPayGreen,
-                                fontWeight = FontWeight.Black
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(FastPayGreen, CircleShape)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "ACTIVE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = FastPayGreen,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
                     }
                 }
