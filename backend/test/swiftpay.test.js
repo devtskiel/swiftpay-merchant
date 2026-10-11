@@ -20,7 +20,8 @@ let failOtpRequest = false;
 
 before(async () => {
   requests = [];
-  const app = createApp({
+  let app;
+  app = createApp({
     config,
     requestOtp: async () => {
       if (failOtpRequest) throw new Error("OTP email provider rejected request (HTTP 403)");
@@ -48,6 +49,7 @@ before(async () => {
       });
     }
   });
+  assert.equal(app.get("trust proxy"), 1);
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;

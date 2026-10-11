@@ -78,7 +78,7 @@ test("failed OTP delivery clears the challenge and allows an immediate retry", a
   assert.equal((await auth.verifyOtp("merchant@example.com", "204681")).email, "merchant@example.com");
 });
 
-test("OTP delivery reports provider HTTP failures without exposing email content", async () => {
+test("OTP delivery diagnostics retain provider messages while redacting sensitive values", async () => {
   await assert.rejects(
     sendOtpEmail(
       { resendApiKey: "test-key", otpFromEmail: "SwiftPay <login@example.com>" },
@@ -86,13 +86,32 @@ test("OTP delivery reports provider HTTP failures without exposing email content
       "204681",
       async () => new Response(JSON.stringify({
         name: "validation_error",
-        message: "The sender domain is not verified",
+        message: "The sender login@example.com domain is not verified for merchant@example.com",
         recipient: "merchant@example.com"
       }), { status: 403 })
     ),
     (error) => {
-      assert.match(error.message, /HTTP 403, validation_error/);
-      assert.doesNotMatch(error.message, /not verified|merchant@example\.com/);
+      assert.match(error.message, /HTTP 403, validation_error\): The sender \[redacted-email\] domain is not verified for \[redacted-email\]/);
+      assert.doesNotMatch(error.message, /merchant@example\.com/);
+      return true;
+    }
+  );
+});
+
+test("OTP delivery diagnostics redact API keys and cap provider message length", async () => {
+  await assert.rejects(
+    sendOtpEmail(
+      { resendApiKey: "test-key", otpFromEmail: "SwiftPay <login@example.com>" },
+      "merchant@example.com",
+      "204681",
+      async () => new Response(JSON.stringify({
+        name: "validation_error",
+        message: `Key re_${"A".repeat(40)} invalid. ${"x".repeat(300)}`
+      }), { status: 403 })
+    ),
+    (error) => {
+      assert.match(error.message, /\[redacted-key\]/);
+      assert.ok(error.message.length < 300);
       return true;
     }
   );
