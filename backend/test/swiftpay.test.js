@@ -17,9 +17,11 @@ let server;
 let baseUrl;
 let requests;
 let failOtpRequest = false;
+let accountResponse;
 
 before(async () => {
   requests = [];
+  accountResponse = { number: "001002003004", balance: 12500.75 };
   let app;
   app = createApp({
     config,
@@ -39,7 +41,7 @@ before(async () => {
         : url.pathname.endsWith("/payments/status")
           ? { status: 200, body: "EXECUTED" }
           : url.pathname.endsWith("/disbursements/account")
-            ? { status: 200, body: { number: "001002003004", balance: 12500.75 } }
+          ? { status: 200, body: accountResponse }
           : url.pathname.endsWith("/disbursements/send")
             ? { status: 200, body: { id: "9d51c8e2-3211-4c01-a9a1-19a9a8bd5c01" } }
             : { status: 202, body: { customerRedirectUrl: "https://pay.example/checkout" } };
@@ -156,6 +158,19 @@ test("wallet balance is read from the documented provider endpoint using Basic a
   assert.deepEqual(await response.json(), { balance: 12500.75, accountNumber: "001002003004" });
   assert.equal(requests.at(-1).url, "https://provider.example/api/disbursements/account");
   assert.match(requests.at(-1).options.headers.Authorization, /^Basic /);
+});
+
+test("wallet balance accepts the published available_balance field without an account number", async () => {
+  accountResponse = { available_balance: 9876.5 };
+  try {
+    const response = await fetch(`${baseUrl}/v1/wallet/balance`, {
+      headers: { authorization: "Bearer valid-test-token" }
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { balance: 9876.5 });
+  } finally {
+    accountResponse = { number: "001002003004", balance: 12500.75 };
+  }
 });
 
 test("payment links use Basic auth and require a fixed PHP amount", async () => {

@@ -136,12 +136,17 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
 
   app.get("/v1/wallet/balance", requireScope("swiftpay:disbursements:read"), asyncRoute(async (_req, res) => {
     const result = await requestProvider("disbursements/account", { auth: "basic" });
-    const balance = z.number().finite().safeParse(result.data?.balance);
-    const accountNumber = z.string().min(1).safeParse(result.data?.number);
-    if (!balance.success || !accountNumber.success) {
+    const providerBalance = result.data?.available_balance ?? result.data?.balance;
+    const balance = z.number().finite().safeParse(providerBalance);
+    if (!balance.success) {
       throw new SwiftPayError(502, "SwiftPay returned an invalid wallet account response");
     }
-    res.status(result.status).json({ balance: balance.data, accountNumber: accountNumber.data });
+    const accountNumber = z.string().trim().min(1).optional()
+      .safeParse(result.data?.account_number ?? result.data?.accountNumber ?? result.data?.number);
+    res.status(result.status).json({
+      balance: balance.data,
+      ...(accountNumber.success && accountNumber.data ? { accountNumber: accountNumber.data } : {})
+    });
   }));
 
   app.post("/v1/payment-links", requireScope("swiftpay:payments:write"), asyncRoute(async (req, res) => {
