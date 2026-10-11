@@ -173,6 +173,19 @@ test("wallet balance accepts the published available_balance field without an ac
   }
 });
 
+test("wallet balance accepts a numeric string from the provider", async () => {
+  accountResponse = { available_balance: "9876.50" };
+  try {
+    const response = await fetch(`${baseUrl}/v1/wallet/balance`, {
+      headers: { authorization: "Bearer valid-test-token" }
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { balance: 9876.5 });
+  } finally {
+    accountResponse = { number: "001002003004", balance: 12500.75 };
+  }
+});
+
 test("payment links use Basic auth and require a fixed PHP amount", async () => {
   const response = await fetch(`${baseUrl}/v1/payment-links`, {
     method: "POST",

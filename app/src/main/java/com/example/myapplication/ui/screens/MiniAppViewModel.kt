@@ -65,6 +65,9 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     var walletBalance by mutableStateOf<Double?>(null)
         private set
 
+    var walletBalanceError by mutableStateOf<String?>(null)
+        private set
+
     var uiState by mutableStateOf<MiniAppUiState>(MiniAppUiState.Idle)
         private set
 
@@ -112,13 +115,21 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshBalance() {
         viewModelScope.launch {
+            walletBalanceError = null
             try {
                 getService().getWalletBalance()
-                    .onSuccess { walletBalance = it }
-                    .onFailure { error -> Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error) }
+                    .onSuccess {
+                        walletBalance = it
+                        walletBalanceError = null
+                    }
+                    .onFailure { error ->
+                        walletBalanceError = error.message ?: "Could not load wallet balance."
+                        Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error)
+                    }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                walletBalanceError = error.message ?: "Could not load wallet balance."
                 Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error)
             }
         }
