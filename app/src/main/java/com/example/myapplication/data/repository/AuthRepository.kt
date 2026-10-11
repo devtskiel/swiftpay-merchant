@@ -8,11 +8,11 @@ import com.example.myapplication.data.SwiftPayService
 class AuthRepository(private val swiftPayService: SwiftPayService) {
 
     suspend fun sendCustomOtp(email: String, code: String): Result<Boolean> =
-        Result.success(true)
+        swiftPayService.sendCustomOtp(email, code)
 
     suspend fun onlineLogin(email: String, password: String): Result<Boolean> =
-        Result.success(true)
+        swiftPayService.onlineLogin(email, password)
 
     suspend fun verifyOnlineCode(email: String, code: String): Result<Boolean> =
-        Result.success(true)
+        swiftPayService.verifyOnlineCode(email, code)
 }

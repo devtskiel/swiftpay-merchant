@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
@@ -75,7 +76,7 @@ fun WalletScreen(
     modifier: Modifier = Modifier,
     viewModel: MiniAppViewModel = viewModel()
 ) {
-    val balance by viewModel.walletBalance.collectAsState()
+    val balance = viewModel.walletBalance
     var transactions by remember { mutableStateOf<List<InternalTransaction>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf("All") }
@@ -97,6 +98,7 @@ fun WalletScreen(
     }
 
     LaunchedEffect(Unit) {
+        viewModel.refreshBalance()
         launch {
             try {
                 val context = viewModel.getApplication<Application>()
@@ -104,7 +106,6 @@ fun WalletScreen(
                 val transactionStore = TransactionStore(context)
                 val service = settings.createSwiftPayService()
                 
-                viewModel.refreshBalance()
                 transactionStore.transactions.collectLatest { localTransactions ->
                     val remoteTransactions = service.getInternalTransactions().getOrNull() ?: emptyList()
                     transactions = mergeTransactions(localTransactions, remoteTransactions)
@@ -151,11 +152,11 @@ fun WalletScreen(
                             scope.launch {
                                 isLoading = true
                                 try {
+                                    viewModel.refreshBalance()
                                     val context = viewModel.getApplication<Application>()
                                     val settings = SettingsManager(context)
                                     val transactionStore = TransactionStore(context)
                                     val service = settings.createSwiftPayService()
-                                    viewModel.refreshBalance()
                                     val localTransactions = transactionStore.transactions.first()
                                     val remoteTransactions = service.getInternalTransactions().getOrNull() ?: emptyList()
                                     transactions = mergeTransactions(localTransactions, remoteTransactions)
@@ -211,7 +212,7 @@ fun WalletScreen(
 
 @Composable
 fun WalletListContent(
-    balance: Double,
+    balance: Double?,
     transactions: List<InternalTransaction>,
     selectedFilter: String,
     onFilterSelected: (String) -> Unit,
@@ -227,12 +228,6 @@ fun WalletListContent(
         
         if (pendingIds.isNotEmpty()) {
             viewModel?.fetchPaymentStatuses(pendingIds)
-        }
-    }
-
-    LaunchedEffect(transactionStatusMap) {
-        if (transactionStatusMap.values.any { it.status?.uppercase()?.contains("SUCCESS") == true }) {
-            viewModel?.refreshBalance()
         }
     }
 
@@ -294,7 +289,7 @@ fun WalletListContent(
 }
 
 @Composable
-fun PremiumBalanceCard(balance: Double) {
+fun PremiumBalanceCard(balance: Double?) {
     val infiniteTransition = rememberInfiniteTransition(label = "cardPulse")
     val shadowOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -351,21 +346,15 @@ fun PremiumBalanceCard(balance: Double) {
                 ) {
                     Column {
                         Text(
-                            text = "TOTAL BALANCE",
+                            text = "AVAILABLE TRANSFER BALANCE",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.2.sp
                         )
                         
-                        val animatedBalance by animateFloatAsState(
-                            targetValue = balance.toFloat(),
-                            animationSpec = tween(1500, easing = EaseOutCubic),
-                            label = "balanceAnimation"
-                        )
-                        
                         Text(
-                            text = "₱ ${"%,.2f".format(animatedBalance)}",
+                            text = balance?.let { "₱ ${"%,.2f".format(it)}" } ?: "Unavailable",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Black,
                             color = Color.White,
@@ -418,11 +407,11 @@ fun QuickActionsRow() {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        QuickActionItem(Icons.Rounded.Add, "Deposit", FastPayBlue) {
-            navController.navigate(Route.MiniApp("qr-page"))
+        QuickActionItem(Icons.Rounded.Payments, "Collect", FastPayBlue) {
+            navController.navigate(Route.MiniApp(null))
         }
-        QuickActionItem(Icons.Rounded.QrCodeScanner, "Receive", FastPayAccent) {
-            navController.navigate(Route.MiniApp("qr-page"))
+        QuickActionItem(Icons.AutoMirrored.Rounded.Send, "Transfer", FastPayAccent) {
+            navController.navigate(Route.MiniApp("disbursement-page"))
         }
         QuickActionItem(Icons.Rounded.MoreHoriz, "More", Color.LightGray) {
             navController.navigate(Route.MiniApp())
@@ -531,11 +520,11 @@ fun AnimatedTransactionItem(tx: InternalTransaction, onClick: () -> Unit, viewMo
 fun TransactionItem(tx: InternalTransaction, onClick: () -> Unit, viewModel: MiniAppViewModel? = null) {
     val isExpense = tx.amount < 0
     val normalizedStatus = tx.status.uppercase()
-    val isFailed = normalizedStatus == "FAILED"
-    val isPending = normalizedStatus == "PENDING"
-    
     val apiPaymentStatus = viewModel?.getPaymentStatusForId(tx.transactionId)
     val apiStatus = apiPaymentStatus?.status?.uppercase()
+    val statusForDisplay = apiStatus ?: normalizedStatus
+    val isFailed = statusForDisplay.contains("FAIL") || statusForDisplay.contains("REJECT") || statusForDisplay == "ERROR"
+    val isPending = statusForDisplay.contains("PEND")
 
     val (icon, statusColor) = when {
         isFailed || apiStatus?.contains("FAIL") == true -> Icons.Rounded.ErrorOutline to Color(0xFFEF4444)
@@ -599,9 +588,12 @@ fun TransactionItem(tx: InternalTransaction, onClick: () -> Unit, viewModel: Min
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = when {
-                        isPending -> "Processing..."
-                        isExpense -> "Money Sent"
-                        else -> "Payment Received"
+                        isFailed && isExpense -> "Transfer failed"
+                        isFailed -> "Payment failed"
+                        isPending && isExpense -> "Transfer pending"
+                        isPending -> "Payment pending"
+                        isExpense -> "Transfer completed"
+                        else -> "Payment received"
                     },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
@@ -666,7 +658,7 @@ fun TransactionDetailScreen(
         val color = when {
             statusToDisplay.contains("FAIL") -> FastPayRed
             isExpense -> FastPayNavy
-            statusToDisplay.contains("SUCCESS") -> FastPayGreen
+            statusToDisplay.contains("SUCCESS") || statusToDisplay == "EXECUTED" -> FastPayGreen
             statusToDisplay.contains("PENDING") -> FastPayOrange
             else -> FastPayNavy
         }
@@ -703,7 +695,13 @@ fun TransactionDetailScreen(
                 Spacer(Modifier.height(20.dp))
                 
                 Text(
-                    text = if (isExpense) "Transfer Successful" else "Payment Received",
+                    text = when {
+                        statusToDisplay.contains("FAIL") || statusToDisplay.contains("REJECT") || statusToDisplay == "ERROR" ->
+                            if (isExpense) "Transfer Failed" else "Payment Failed"
+                        statusToDisplay.contains("PEND") -> if (isExpense) "Transfer Pending" else "Payment Pending"
+                        isExpense -> "Transfer Completed"
+                        else -> "Payment Received"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = textColor

@@ -35,17 +35,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.myapplication.data.ApprovalService
+import com.example.myapplication.data.BackendAuthService
 import com.example.myapplication.data.SettingsManager
-import com.example.myapplication.data.SwiftPayService
-import com.example.myapplication.data.createSwiftPayService
-import com.example.myapplication.data.repository.AuthRepository
 import com.example.myapplication.ui.components.FastPayLogo
 import com.example.myapplication.ui.theme.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import android.util.Patterns
 
 sealed interface LoginState {
     object Landing : LoginState
@@ -56,22 +53,18 @@ sealed interface LoginState {
 
 class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsManager = SettingsManager(application)
-    private val authRepository = AuthRepository(SwiftPayService())
-    private val approvalService = ApprovalService()
+    private val authService = BackendAuthService()
 
     var state by mutableStateOf<LoginState>(LoginState.Landing)
         private set
 
     var username by mutableStateOf("")
-    var password by mutableStateOf("")
     var otpCode by mutableStateOf("")
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
-    var isPasswordVisible by mutableStateOf(false)
     var resendTimer by mutableStateOf(0)
 
     private var timerJob: Job? = null
-    private var approvalJob: Job? = null
 
     fun navigateToCredentials() {
         state = LoginState.Credentials
@@ -81,60 +74,30 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     fun navigateToLanding() {
         state = LoginState.Landing
         errorMessage = null
-        approvalJob?.cancel()
     }
 
     fun onLoginClick() {
-        if (username.isBlank() || password.isBlank()) {
-            errorMessage = "Please fill in all fields"
+        val email = username.trim().lowercase()
+        if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            errorMessage = "Enter a valid merchant email address"
             return
         }
 
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
-            
             try {
-                val service = settingsManager.createSwiftPayService()
-                val isOnlineAccount = service.onlineLogin(username, password).getOrDefault(false)
-
-                if (isOnlineAccount) {
-                    val newCode = (100000..999999).random().toString()
-                    val sent = service.sendCustomOtp(username, newCode).getOrDefault(false)
-                    if (sent) {
-                        state = LoginState.Otp(username)
-                        startResendTimer()
-                        Toast.makeText(getApplication(), "OTP code sent to email", Toast.LENGTH_SHORT).show()
-                    } else {
-                        errorMessage = "Failed to send OTP code"
-                    }
-                } else {
-                    state = LoginState.Otp(username)
+                authService.requestOtp(email).onSuccess {
+                    state = LoginState.Otp(email)
                     startResendTimer()
                     Toast.makeText(getApplication(), "OTP code sent to email", Toast.LENGTH_SHORT).show()
+                }.onFailure { error ->
+                    errorMessage = error.message ?: "Unable to send sign-in code"
                 }
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Network error"
             } finally {
                 isLoading = false
-            }
-        }
-    }
-
-    fun pollApprovalStatus(requestId: String, email: String) {
-        approvalJob?.cancel()
-        approvalJob = viewModelScope.launch {
-            while (true) {
-                try {
-                    val dto = approvalService.getApproval(requestId)
-                    if (dto?.status?.lowercase() == "approved") {
-                        settingsManager.setLoggedIn(email, true)
-                        Toast.makeText(getApplication(), "Device approved successfully!", Toast.LENGTH_SHORT).show()
-                        break
-                    }
-                } catch (_: Exception) {
-                }
-                delay(3000)
             }
         }
     }
@@ -149,17 +112,13 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
-            
             try {
-                val service = settingsManager.createSwiftPayService()
-                val isOnlineValid = service.verifyOnlineCode(currentOtp, otpCode).getOrDefault(false)
-
-                if (isOnlineValid) {
-                    settingsManager.setLoggedIn(currentOtp, true)
+                authService.verifyOtp(currentOtp, otpCode).onSuccess { session ->
+                    settingsManager.saveBackendAccessToken(session.accessToken)
+                    settingsManager.setLoggedIn(session.email, true)
                     onSuccess()
-                } else {
-                    settingsManager.setLoggedIn(currentOtp, true)
-                    onSuccess()
+                }.onFailure { error ->
+                    errorMessage = error.message ?: "Invalid or expired verification code"
                 }
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Network error"
@@ -175,8 +134,13 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         val email = (state as? LoginState.Otp)?.email ?: username
         viewModelScope.launch {
             isLoading = true
-            Toast.makeText(getApplication(), "New code sent!", Toast.LENGTH_SHORT).show()
-            startResendTimer()
+            errorMessage = null
+            authService.requestOtp(email).onSuccess {
+                Toast.makeText(getApplication(), "New sign-in code sent", Toast.LENGTH_SHORT).show()
+                startResendTimer()
+            }.onFailure { error ->
+                errorMessage = error.message ?: "Unable to resend sign-in code"
+            }
             isLoading = false
         }
     }
@@ -207,13 +171,9 @@ fun LoginScreen(
             )
             LoginState.Credentials -> CredentialsContent(
                 username = viewModel.username,
-                password = viewModel.password,
                 isLoading = viewModel.isLoading,
                 errorMessage = viewModel.errorMessage,
-                isPasswordVisible = viewModel.isPasswordVisible,
                 onUsernameChange = { viewModel.username = it },
-                onPasswordChange = { viewModel.password = it },
-                onTogglePassword = { viewModel.isPasswordVisible = !viewModel.isPasswordVisible },
                 onBack = { viewModel.navigateToLanding() },
                 onLoginClick = { viewModel.onLoginClick() }
             )
@@ -310,7 +270,7 @@ fun LandingContent(onLoginClick: () -> Unit) {
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "QR Ph · Tap to Pay · Payment Links",
+                        text = "Hosted Checkout · Payment Links · Transfers",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White.copy(alpha = 0.9f),
@@ -347,13 +307,9 @@ fun LandingContent(onLoginClick: () -> Unit) {
 @Composable
 fun CredentialsContent(
     username: String,
-    password: String,
     isLoading: Boolean,
     errorMessage: String?,
-    isPasswordVisible: Boolean,
     onUsernameChange: (String) -> Unit,
-    onPasswordChange: (String) -> Unit,
-    onTogglePassword: () -> Unit,
     onBack: () -> Unit,
     onLoginClick: () -> Unit
 ) {
@@ -394,7 +350,7 @@ fun CredentialsContent(
             color = textColor
         )
         Text(
-            text = "Enter your merchant credentials to continue",
+            text = "Sign in with an authorized merchant email",
             style = MaterialTheme.typography.bodyMedium,
             color = secondaryTextColor
         )
@@ -404,35 +360,12 @@ fun CredentialsContent(
         CustomTextField(
             value = username,
             onValueChange = onUsernameChange,
-            placeholder = "Email or Mobile Number",
+            placeholder = "Merchant email address",
             leadingIcon = Icons.Rounded.AlternateEmail,
+            keyboardType = KeyboardType.Email,
             isDarkTheme = isSystemInDarkTheme()
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        CustomTextField(
-            value = password,
-            onValueChange = onPasswordChange,
-            placeholder = "Password",
-            leadingIcon = Icons.Rounded.Lock,
-            isPassword = true,
-            isPasswordVisible = isPasswordVisible,
-            onTogglePassword = onTogglePassword,
-            isDarkTheme = isSystemInDarkTheme()
-        )
-
         Spacer(modifier = Modifier.height(20.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Text(
-                text = "Forgot Password?",
-                color = FastPayBlue,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.clickable { }
-            )
-        }
 
         Spacer(modifier = Modifier.weight(1f))
 
@@ -484,7 +417,8 @@ fun CustomTextField(
     isPassword: Boolean = false,
     isPasswordVisible: Boolean = false,
     onTogglePassword: (() -> Unit)? = null,
-    isDarkTheme: Boolean = false
+    isDarkTheme: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text
 ) {
     val isFocused = remember { mutableStateOf(false) }
 
@@ -532,7 +466,7 @@ fun CustomTextField(
         ),
         shape = RoundedCornerShape(14.dp),
         singleLine = true,
-        keyboardOptions = if (isPassword) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default
+        keyboardOptions = KeyboardOptions(keyboardType = if (isPassword) KeyboardType.Password else keyboardType)
     )
 }
 

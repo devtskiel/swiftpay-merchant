@@ -6,11 +6,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Security
-import androidx.compose.material.icons.rounded.Webhook
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -57,46 +55,55 @@ fun ApiDocsScreen() {
             )
 
             DocSection(
-                title = "1. API Credentials",
+                title = "1. Server-held credentials",
                 icon = Icons.Rounded.Key,
-                content = "Access SwiftPay gateway APIs using your Access Key and Secret Key. Keep secret credentials safe and never expose them in frontend scripts.",
-                code = "X-Access-Key: ADD7F25B...\nX-Secret-Key: sk_live_891f...\nX-Merchant-ID: 5312",
+                content = "SwiftPay access and secret keys stay in the payment backend environment. They are never stored in the Android app or exposed to the embedded mini-app.",
+                code = "SWIFTPAY_ACCESS_KEY=server-only\nSWIFTPAY_SECRET_KEY=server-only",
                 cardColor = cardColor,
                 textColor = textColor
             )
 
             DocSection(
-                title = "2. Authentication",
+                title = "2. Merchant sign-in",
                 icon = Icons.Rounded.Security,
-                content = "API requests use HTTP headers or Bearer tokens. Include X-Access-Key or Bearer <ACCESS_KEY> on all request headers.",
-                code = "Authorization: Bearer <SWIFTPAY_ACCESS_KEY>",
+                content = "Only allowlisted merchant emails can request a sign-in code. The verified backend session authorizes payment requests.",
+                code = "POST /v1/auth/request-otp\nPOST /v1/auth/verify-otp",
                 cardColor = cardColor,
                 textColor = textColor
             )
 
             DocSection(
-                title = "3. Fast Checkout Order",
+                title = "3. Hosted checkout",
                 icon = Icons.Rounded.Description,
-                content = "Create seamless checkout orders. Supports cards, e-wallets, and online banking.",
-                code = "POST /v1/swiftpay/create-order\n{\n  \"amount\": 100.00,\n  \"reference_no\": \"REF-1001\",\n  \"description\": \"Order Checkout\"\n}",
+                content = "Create a PHP order with a unique reference. SwiftPay returns a hosted checkout URL; the backend signs the request.",
+                code = "POST /v1/payments/orders\n{\n  \"amount\": 100.00,\n  \"referenceNo\": \"INV-1001\",\n  \"currency\": \"PHP\",\n  \"details\": {}\n}",
                 cardColor = cardColor,
                 textColor = textColor
             )
 
             DocSection(
-                title = "4. Dynamic QR Ph",
-                icon = Icons.Rounded.Code,
-                content = "Generate national standard dynamic QR Ph codes. Amount is embedded automatically for instant settlement.",
-                code = "POST /v1/magpie/qr/dynamic\n{\n  \"amount\": 50.00,\n  \"reference_no\": \"QR-1002\"\n}",
+                title = "4. Payment links",
+                icon = Icons.Rounded.Description,
+                content = "Create fixed-amount hosted payment links. The published SwiftPay API requires a positive PHP amount.",
+                code = "POST /v1/payment-links\n{\n  \"amount\": 50.00,\n  \"currency\": \"PHP\",\n  \"description\": \"Invoice 1002\"\n}",
                 cardColor = cardColor,
                 textColor = textColor
             )
 
             DocSection(
-                title = "5. Status Webhooks",
-                icon = Icons.Rounded.Webhook,
-                content = "Receive instant HTTP POST callbacks whenever a transaction status changes.",
-                code = "{\n  \"status\": \"PAYMENT_SUCCESS\",\n  \"order_id\": \"ORD-9921\",\n  \"amount\": 100.00\n}",
+                title = "5. Transfers and status",
+                icon = Icons.Rounded.Description,
+                content = "Transfers are accepted asynchronously. A successful submission is pending until SwiftPay reports a terminal status.",
+                code = "POST /v1/disbursements\nGET /v1/disbursements/{id}\nGET /v1/payments/{paymentToken}/status",
+                cardColor = cardColor,
+                textColor = textColor
+            )
+
+            DocSection(
+                title = "6. Unsupported endpoints",
+                icon = Icons.Rounded.Security,
+                content = "The balance endpoint reports available funds in the disbursement ledger; it is not a combined card or settlement balance. Dynamic QR creation is not documented by the published API.",
+                code = "GET /v1/wallet/balance\nDynamic QR creation: unavailable",
                 cardColor = cardColor,
                 textColor = textColor
             )

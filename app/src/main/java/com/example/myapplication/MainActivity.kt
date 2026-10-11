@@ -115,7 +115,9 @@ fun SwiftPayApp() {
     val settings = remember { SettingsManager(context) }
     val sessionManager = remember { SessionManager(context, settings) }
     val approvalService: ApprovalService = remember { ApprovalService() }
-    val isLoggedIn by settings.isLoggedIn.collectAsState(initial = false)
+    val isLoggedInFlag by settings.isLoggedIn.collectAsState(initial = false)
+    val backendAccessToken by settings.backendAccessToken.collectAsState(initial = null)
+    val isLoggedIn = isLoggedInFlag && !backendAccessToken.isNullOrBlank()
     val loggedInEmail by settings.loggedInEmail.collectAsState(initial = null)
 
     DebugLogger.logAuthCheck(isLoggedIn, loggedInEmail)
@@ -123,16 +125,6 @@ fun SwiftPayApp() {
 
     val backStack = remember { mutableStateListOf<Route>(if (isLoggedIn) Route.Home else Route.Login) }
     val currentRoute = backStack.lastOrNull() ?: Route.Login
-
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        if (!isLoggedIn) {
-            val currentSession = sessionManager.getCurrentSessionToken()
-            if (currentSession != null) {
-                settings.setLoggedIn(currentSession.email, true)
-                DebugLogger.logSessionRestored(currentSession.email, currentSession.deviceId)
-            }
-        }
-    }
 
     androidx.compose.runtime.LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
@@ -199,13 +191,10 @@ fun SwiftPayApp() {
             DeepLinkBus.flow.collectLatest { payload ->
                 if (payload != null) {
                     navController.navigate(Route.Home)
-                    val (linkId, status) = DeepLinkExtractor.extractPaymentInfo(payload)
+                    val (linkId, _) = DeepLinkExtractor.extractPaymentInfo(payload)
                     if (linkId.isNotBlank()) {
-                        miniAppViewModel.handleDeepLink(linkId, status.ifBlank { null })
-                    }
-                    if (linkId.isNotEmpty() || status.isNotEmpty()) {
-                        val message = DeepLinkExtractor.formatPaymentMessage(linkId, status)
-                        Toast.makeText(currentContext, message, Toast.LENGTH_LONG).show()
+                        miniAppViewModel.handleDeepLink(linkId)
+                        Toast.makeText(currentContext, "Checking payment status with SwiftPay", Toast.LENGTH_LONG).show()
                     }
                 }
             }

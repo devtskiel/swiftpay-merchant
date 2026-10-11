@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.CompareArrows
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.*
@@ -33,7 +32,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.data.SettingsManager
+import com.example.myapplication.data.TransactionStore
 import com.example.myapplication.data.createSwiftPayService
+import com.example.myapplication.data.mergeTransactions
+import com.example.myapplication.data.api.InternalTransaction
 import com.example.myapplication.ui.theme.FastPayActionIcon
 import com.example.myapplication.ui.theme.FastPayTextPrimary
 import com.example.myapplication.ui.theme.FastPayTextSecondary
@@ -50,69 +52,70 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager(context) }
-    var balance by remember { mutableDoubleStateOf(0.0) }
+    val transactionStore = remember { TransactionStore(context) }
+    var balance by remember { mutableStateOf<Double?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
+    var recentTransactions by remember { mutableStateOf<List<InternalTransaction>>(emptyList()) }
+    var isLoadingTransactions by remember { mutableStateOf(true) }
+    var transactionHistoryUnavailable by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        scope.launch {
-            try {
-                val stored = settingsManager.walletBalance.first()
-                balance = stored?.toDoubleOrNull() ?: 0.0
-                val service = settingsManager.createSwiftPayService()
-                val fresh = service.getWalletBalance()
-                if (fresh > 0.0 || (balance == 0.0 && fresh > 0.0)) {
-                    balance = fresh
-                    settingsManager.saveWalletBalance(fresh.toString())
-                }
-            } catch (_: Exception) {
-            } finally {
-                isLoading = false
-            }
+        try {
+            val service = settingsManager.createSwiftPayService()
+            service.getWalletBalance().onSuccess { balance = it }
+            val localTransactions = transactionStore.transactions.first()
+            val remoteResult = service.getInternalTransactions()
+            transactionHistoryUnavailable = remoteResult.isFailure && localTransactions.isEmpty()
+            recentTransactions = mergeTransactions(localTransactions, remoteResult.getOrNull().orEmpty()).take(3)
+        } catch (_: Exception) {
+            transactionHistoryUnavailable = true
+        } finally {
+            isLoading = false
+            isLoadingTransactions = false
         }
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color.White)) {
         MeshBackground()
-
         Column(
             modifier = Modifier
+                .widthIn(max = 560.dp)
                 .fillMaxSize()
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
         ) {
             Spacer(modifier = Modifier.height(20.dp))
-
             HeaderSection(
                 balance = balance,
                 isLoading = isLoading,
                 onProfileClick = onProfileClick,
                 onHelpClick = onHelpClick
             )
-
             Spacer(modifier = Modifier.height(24.dp))
-
             PrimaryActionRow(
-                onCashIn = { onLaunchMiniApp(null) },
-                onSend = { onLaunchMiniApp("disbursement-page") },
-                onScan = { onLaunchMiniApp("qr-page") }
+                onCollect = { onLaunchMiniApp(null) },
+                onTransfer = { onLaunchMiniApp("disbursement-page") },
+                onPaymentLink = { onLaunchMiniApp("payment-link-page") }
             )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            SecondaryToolGrid(onLaunchMiniApp)
-
+            Spacer(modifier = Modifier.height(28.dp))
+            SecondaryToolGrid(
+                onNavigateToWallet = onNavigateToWallet,
+                onPaymentLink = { onLaunchMiniApp("payment-link-page") },
+                onDeveloperDocs = { onLaunchMiniApp("api-docs-page") },
+                onHelpClick = onHelpClick
+            )
             Spacer(modifier = Modifier.height(24.dp))
-
             PromotionalBanner()
-
             Spacer(modifier = Modifier.height(24.dp))
-
-            TransactionHistorySection(onNavigateToWallet)
-
+            TransactionHistorySection(
+                transactions = recentTransactions,
+                isLoading = isLoadingTransactions,
+                hasError = transactionHistoryUnavailable,
+                onClick = onNavigateToWallet
+            )
             Spacer(modifier = Modifier.height(24.dp))
-
             RewardsHubSection()
-
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
@@ -152,7 +155,7 @@ fun MeshBackground() {
 
 @Composable
 fun HeaderSection(
-    balance: Double,
+    balance: Double?,
     isLoading: Boolean,
     onProfileClick: () -> Unit,
     onHelpClick: () -> Unit
@@ -169,7 +172,7 @@ fun HeaderSection(
                 Box(modifier = Modifier.width(120.dp).height(32.dp).clip(RoundedCornerShape(8.dp)).shimmerEffect())
             } else {
                 Text(
-                    text = "₱${"%,.2f".format(balance)}",
+                    text = balance?.let { "₱${"%,.2f".format(it)}" } ?: "Unavailable",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = FastPayTextPrimary,
@@ -178,7 +181,7 @@ fun HeaderSection(
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                 Text(
-                    text = "Total Balance",
+                    text = "Available transfer balance",
                     style = MaterialTheme.typography.bodySmall,
                     color = FastPayTextSecondary,
                     fontWeight = FontWeight.Medium
@@ -205,30 +208,29 @@ fun HeaderSection(
 
 @Composable
 fun PrimaryActionRow(
-    onCashIn: () -> Unit,
-    onSend: () -> Unit,
-    onScan: () -> Unit
+    onCollect: () -> Unit,
+    onTransfer: () -> Unit,
+    onPaymentLink: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        PrimaryActionButton(icon = Icons.Rounded.AccountBalance, label = "Top Up", onClick = onCashIn)
-        PrimaryActionButton(icon = Icons.Rounded.FileUpload, label = "Send Money", onClick = onSend)
-        PrimaryActionButton(icon = Icons.Rounded.QrCodeScanner, label = "Scan & Pay", onClick = onScan)
+        PrimaryActionButton(icon = Icons.Rounded.Payments, label = "Collect", onClick = onCollect, modifier = Modifier.weight(1f))
+        PrimaryActionButton(icon = Icons.AutoMirrored.Rounded.Send, label = "Transfer", onClick = onTransfer, modifier = Modifier.weight(1f))
+        PrimaryActionButton(icon = Icons.Rounded.Link, label = "Payment Link", onClick = onPaymentLink, modifier = Modifier.weight(1f))
     }
 }
 
 @Composable
-fun PrimaryActionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun PrimaryActionButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             shape = RoundedCornerShape(16.dp),
             color = Color.White,
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
             modifier = Modifier.size(72.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -246,37 +248,33 @@ fun PrimaryActionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun SecondaryToolGrid(onLaunch: (String?) -> Unit) {
-    val tools = listOf(
-        Triple(Icons.Rounded.Description, "Pay Bills", null),
-        Triple(Icons.Rounded.PhonelinkRing, "Buy Load", null),
-        Triple(Icons.Rounded.Token, "Crypto", null),
-        Triple(Icons.AutoMirrored.Rounded.CompareArrows, "Spot Trade", null),
-        Triple(Icons.Rounded.CardGiftcard, "Rewards", null),
-        Triple(Icons.Rounded.AccountBalanceWallet, "Tap to Pay", "card-payment-page"),
-        Triple(Icons.Rounded.Terminal, "Developer", "api-docs-page"),
-        Triple(Icons.Rounded.GridView, "More", null)
-    )
-
+fun SecondaryToolGrid(
+    onNavigateToWallet: () -> Unit,
+    onPaymentLink: () -> Unit,
+    onDeveloperDocs: () -> Unit,
+    onHelpClick: () -> Unit
+) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        for (i in 0 until 2) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                for (j in 0 until 4) {
-                    val index = i * 4 + j
-                    val (icon, label, path) = tools[index]
-                    ToolItem(icon, label) { onLaunch(path) }
-                }
-            }
-            if (i == 0) Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "More",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = FastPayTextPrimary
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            ToolItem(Icons.Rounded.AccountBalanceWallet, "Wallet", Modifier.weight(1f), onNavigateToWallet)
+            ToolItem(Icons.Rounded.Link, "Payment Link", Modifier.weight(1f), onPaymentLink)
+            ToolItem(Icons.Rounded.Terminal, "API Docs", Modifier.weight(1f), onDeveloperDocs)
+            ToolItem(Icons.AutoMirrored.Rounded.HelpOutline, "Help", Modifier.weight(1f), onHelpClick)
         }
     }
 }
 
 @Composable
-fun ToolItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+fun ToolItem(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(
-        modifier = Modifier
-            .width(80.dp)
+        modifier = modifier
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -306,12 +304,13 @@ fun PromotionalBanner() {
         shape = RoundedCornerShape(20.dp),
         color = Color(0xFFEFF6FF)
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                drawCircle(color = Color(0xFFDBEAFE), center = Offset(size.width * 0.9f, size.height * 0.5f), radius = size.width * 0.3f)
-            }
-
-            Column(modifier = Modifier.padding(20.dp).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "SwiftPay Deals",
                     style = MaterialTheme.typography.labelSmall,
@@ -332,28 +331,29 @@ fun PromotionalBanner() {
                     modifier = Modifier.padding(top = 4.dp)
                 )
 
-                Spacer(modifier = Modifier.weight(1f))
-
                 Button(
                     onClick = { },
                     colors = ButtonDefaults.buttonColors(containerColor = FastPayActionIcon),
                     shape = RoundedCornerShape(20.dp),
-                    contentPadding = PaddingValues(horizontal = 24.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
                     modifier = Modifier.height(36.dp)
                 ) {
                     Text("Get Started", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)) {
-                Icon(Icons.Rounded.DonutLarge, null, tint = Color(0xFFF97316).copy(alpha = 0.8f), modifier = Modifier.size(80.dp))
-            }
+            Icon(Icons.Rounded.DonutLarge, null, tint = Color(0xFFF97316).copy(alpha = 0.8f), modifier = Modifier.size(64.dp))
         }
     }
 }
 
 @Composable
-fun TransactionHistorySection(onClick: () -> Unit) {
+fun TransactionHistorySection(
+    transactions: List<InternalTransaction>,
+    isLoading: Boolean,
+    hasError: Boolean,
+    onClick: () -> Unit
+) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().clickable { onClick() },
@@ -365,7 +365,7 @@ fun TransactionHistorySection(onClick: () -> Unit) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = "Transaction History",
-                    style = MaterialTheme.typography.titleMedium.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = FastPayTextPrimary
                 )
@@ -375,37 +375,38 @@ fun TransactionHistorySection(onClick: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        TransactionListItem(label = "QR Ph Payment", amount = -100.0, isOutflow = true)
-        Spacer(modifier = Modifier.height(12.dp))
-        TransactionListItem(label = "Card Tap Payment", amount = 2500.0, isOutflow = false)
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFFF8FAFC),
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-        ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("SwiftPay API", style = MaterialTheme.typography.labelSmall, color = FastPayTextSecondary)
-                    Text(
-                        "Instant & Secure\nPayments with SwiftPay",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = FastPayTextPrimary,
-                        lineHeight = 22.sp
-                    )
-                }
-                Icon(Icons.AutoMirrored.Rounded.Send, null, tint = FastPayActionIcon, modifier = Modifier.size(48.dp).alpha(0.2f))
+        when {
+            isLoading -> Box(Modifier.fillMaxWidth().height(72.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+            }
+            transactions.isEmpty() -> Text(
+                text = if (hasError) "Transaction history unavailable" else "No transactions yet",
+                style = MaterialTheme.typography.bodyMedium,
+                color = FastPayTextSecondary,
+                modifier = Modifier.padding(vertical = 20.dp)
+            )
+            else -> transactions.forEachIndexed { index, transaction ->
+                if (index > 0) Spacer(modifier = Modifier.height(12.dp))
+                TransactionListItem(transaction)
             }
         }
     }
 }
 
 @Composable
-fun TransactionListItem(label: String, amount: Double, isOutflow: Boolean) {
+fun TransactionListItem(transaction: InternalTransaction) {
+    val isOutflow = transaction.amount < 0
+    val status = transaction.status.uppercase()
+    val isFailed = status == "FAILED"
+    val isPending = status == "PENDING"
+    val label = when {
+        isFailed && isOutflow -> "Transfer failed"
+        isFailed -> "Payment failed"
+        isPending && isOutflow -> "Transfer pending"
+        isPending -> "Payment pending"
+        isOutflow -> "Transfer completed"
+        else -> "Payment received"
+    }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Surface(
             shape = CircleShape,
@@ -415,21 +416,32 @@ fun TransactionListItem(label: String, amount: Double, isOutflow: Boolean) {
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    if (isOutflow) Icons.Rounded.NorthEast else Icons.Rounded.SouthWest,
+                    when {
+                        isFailed -> Icons.Rounded.ErrorOutline
+                        isPending -> Icons.Rounded.Schedule
+                        isOutflow -> Icons.Rounded.NorthEast
+                        else -> Icons.Rounded.SouthWest
+                    },
                     null,
-                    tint = FastPayTextSecondary,
+                    tint = if (isFailed) Color(0xFFEF4444) else FastPayTextSecondary,
                     modifier = Modifier.size(16.dp)
                 )
             }
         }
         Spacer(modifier = Modifier.width(12.dp))
-        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = FastPayTextPrimary, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = FastPayTextPrimary, fontWeight = FontWeight.Medium)
+            Text(text = transaction.date, style = MaterialTheme.typography.labelSmall, color = FastPayTextSecondary, maxLines = 1)
+        }
         Text(
-            text = "${if(isOutflow) "-" else "+"}₱${"%,.2f".format(Math.abs(amount))}",
+            text = "${if (isOutflow) "-" else if (isFailed) "" else "+"}₱${"%,.2f".format(kotlin.math.abs(transaction.amount))}",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
-            color = FastPayTextPrimary
+            color = when {
+                isFailed -> Color(0xFFEF4444)
+                isOutflow -> FastPayTextPrimary
+                else -> Color(0xFF16835D)
+            }
         )
     }
 }

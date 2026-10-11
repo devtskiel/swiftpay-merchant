@@ -1,7 +1,6 @@
 package com.example.myapplication.ui.screens
 
 import android.app.Application
-import android.nfc.NfcAdapter
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,18 +15,12 @@ import com.example.myapplication.data.TransactionStore
 import com.example.myapplication.data.api.InternalTransaction
 import com.example.myapplication.data.api.SwiftPayStatusResponse
 import com.example.myapplication.data.createSwiftPayService
-import com.example.myapplication.data.loadSwiftPayCredentials
 import com.example.myapplication.data.mergeTransactions
 import com.example.myapplication.data.repository.PaymentRepository
 import com.example.myapplication.data.repository.TransactionRepository
-import com.example.myapplication.util.findActivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed interface MiniAppUiState {
@@ -68,35 +61,8 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     )
     private val paymentRepository = PaymentRepository(SwiftPayService())
 
-    val walletBalance: StateFlow<Double> = settingsManager.walletBalance
-        .map { it?.toDoubleOrNull() ?: 0.0 }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 0.0
-        )
-
-    private var isLoadingBalance = false
-
-    fun refreshBalance() {
-        if (isLoadingBalance) return
-        viewModelScope.launch {
-            isLoadingBalance = true
-            try {
-                val service = getService()
-                val currentLocalBalance = walletBalance.value
-                val freshBalance = service.getWalletBalance()
-
-                if (freshBalance > currentLocalBalance || (currentLocalBalance == 0.0 && freshBalance > 0)) {
-                    settingsManager.saveWalletBalance(freshBalance.toString())
-                }
-            } catch (e: Exception) {
-                Log.e("MiniAppViewModel", "Failed to refresh balance", e)
-            } finally {
-                isLoadingBalance = false
-            }
-        }
-    }
+    var walletBalance by mutableStateOf<Double?>(null)
+        private set
 
     var uiState by mutableStateOf<MiniAppUiState>(MiniAppUiState.Idle)
         private set
@@ -127,6 +93,14 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
         return settingsManager.createSwiftPayService()
     }
 
+    fun refreshBalance() {
+        viewModelScope.launch {
+            getService().getWalletBalance()
+                .onSuccess { walletBalance = it }
+                .onFailure { error -> Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error) }
+        }
+    }
+
     fun requestPaymentConsent(data: PaymentData) {
         if (data.amount <= 0) {
             uiState = MiniAppUiState.Error("Invalid payment amount. Amount must be greater than ₱0.00")
@@ -141,22 +115,9 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun onBalanceRequest() {
         viewModelScope.launch {
-            val currentLocalBalance = walletBalance.value
-            bridge?.sendResponse(currentLocalBalance)
-
-            if (System.currentTimeMillis() - lastLocalCreditTime < 30000) {
-                return@launch
-            }
-
-            try {
-                val freshBalance = getService().getWalletBalance()
-                if (freshBalance > currentLocalBalance || (currentLocalBalance == 0.0 && freshBalance > 0)) {
-                    settingsManager.saveWalletBalance(freshBalance.toString())
-                    bridge?.sendResponse(freshBalance)
-                }
-            } catch (e: Exception) {
-                Log.e("MiniAppViewModel", "Failed to refresh balance from server", e)
-            }
+            getService().getWalletBalance()
+                .onSuccess { bridge?.sendResponse(it) }
+                .onFailure { error -> bridge?.sendError(error.message ?: "Wallet balance is unavailable") }
         }
     }
 
@@ -197,12 +158,6 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
                 result.onSuccess { response ->
                     val url = response.paymentLinkUrl
                     if (url != null) {
-                        recordLocalTransaction(
-                            id = response.id ?: "LINK${System.currentTimeMillis()}",
-                            amount = data.amount,
-                            status = "PENDING"
-                        )
-
                         uiState = MiniAppUiState.PaymentLinkReady(url)
 
                         bridge?.sendResponse(mapOf(
@@ -234,38 +189,9 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onScanNFCCard(amount: Double) {
-        if (amount <= 0.0) {
-            uiState = MiniAppUiState.Error("Please enter a valid amount before launching Tap to Pay.")
-            return
-        }
-
-        val webViewContext = bridge?.webView?.context
-        val activity = webViewContext?.findActivity()
-
-        if (activity == null || webViewContext == null) {
-            uiState = MiniAppUiState.Error("Unable to access device context. Please restart the app and try again.")
-            return
-        }
-
-        val nfcAdapter = NfcAdapter.getDefaultAdapter(activity)
-
-        if (nfcAdapter == null) {
-            uiState = MiniAppUiState.Error("NFC is not supported on this device.")
-        } else if (!nfcAdapter.isEnabled) {
-            uiState = MiniAppUiState.Error("NFC is disabled. Please enable it in Settings > Connected devices > NFC")
-        } else {
-            viewModelScope.launch {
-                uiState = MiniAppUiState.Processing("Preparing secure NFC session...")
-                delay(100)
-
-                bridge?.sendResponse(mapOf("status" to "starting_reader", "message" to "Reader arming..."))
-
-                startNFCTimer(
-                    amount = amount,
-                    merchantName = "Fast Pay Merchant"
-                )
-            }
-        }
+        val message = "Tap-to-phone card processing is not supported by the configured SwiftPay API."
+        bridge?.sendError(message)
+        uiState = MiniAppUiState.Error(message)
     }
 
     fun onNfcProgress(message: String) {
@@ -314,15 +240,20 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
             uiState = MiniAppUiState.Processing("Processing SwiftPay transfer...")
             val result = getService().disburse(amount, bankCode, accountNumber, recipientName)
             result.onSuccess { response ->
+                val status = normalizePaymentStatus(response.status)
                 recordLocalTransaction(
                     id = response.disbursementId ?: response.id ?: "DISB${System.currentTimeMillis()}",
                     amount = -amount,
-                    status = response.status ?: "SUCCESS"
+                    status = status
                 )
                 bridge?.sendResponse(mapOf(
-                    "status" to "success",
+                    "status" to status.lowercase(),
                     "disbursementId" to (response.disbursementId ?: response.id ?: ""),
-                    "message" to "Transfer of ₱${"%.2f".format(amount)} to $recipientName ($bankCode) successful!"
+                    "message" to if (status == "SUCCESS") {
+                        "Transfer of ₱${"%.2f".format(amount)} to $recipientName ($bankCode) completed."
+                    } else {
+                        "Transfer submitted for processing. Check transaction status before treating it as complete."
+                    }
                 ))
                 uiState = MiniAppUiState.Idle
             }.onFailure { error ->
@@ -371,16 +302,9 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun retryNfc() {
-        val state = uiState as? MiniAppUiState.WaitingForNFC ?: return
-        val amount = state.amount
-        val merchantName = state.merchantName
-        val merchantAddress = state.merchantAddress
-
-        viewModelScope.launch {
-            uiState = MiniAppUiState.Processing("Restarting NFC reader...")
-            delay(300)
-            startNFCTimer(amount, merchantName, merchantAddress)
-        }
+        val message = "Tap-to-phone card processing is not supported by the configured SwiftPay API."
+        bridge?.sendError(message)
+        uiState = MiniAppUiState.Error(message)
     }
 
     private fun start3DSTimeout(checkoutId: String) {
@@ -397,114 +321,36 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onCvvEntered(cvv: String) {
-        val state = uiState as? MiniAppUiState.WaitingForCVV ?: return
-        val amount = state.amount
-        val pan = state.pan
-        val expiry = state.expiry
-        val label = state.label
-        val name = "Fast Pay Merchant"
-
-        viewModelScope.launch {
-            try {
-                uiState = MiniAppUiState.Processing("Authorizing $label ending in ${pan.takeLast(4)}...")
-
-                val expiryParts = expiry.split("/")
-                val month = (expiryParts.getOrNull(0) ?: "12").padStart(2, '0')
-                val rawYear = expiryParts.getOrNull(1) ?: "28"
-                val year = if (rawYear.length == 2) "20$rawYear" else rawYear
-
-                val result = getService().processVaultPayment(
-                    amount = amount,
-                    cardDetails = com.example.myapplication.data.api.CardDetails(
-                        number = pan,
-                        expMonth = month,
-                        expYear = year,
-                        cvc = cvv
-                    ),
-                    notes = state.sessionRef
-                )
-
-                result.onSuccess { response ->
-                    val paymentId = response.id ?: response.orderId
-                    val status = response.status?.uppercase() ?: "PENDING"
-
-                    if (response.verificationUrl != null) {
-                        recordLocalTransaction(
-                            id = paymentId ?: "VAULT${System.currentTimeMillis()}",
-                            amount = amount,
-                            status = status
-                        )
-
-                        pendingCheckoutId = paymentId
-                        start3DSTimeout(paymentId ?: "")
-
-                        uiState = MiniAppUiState.PaymentRedirect(
-                            url = response.verificationUrl,
-                            data = PaymentData(amount, "PHP", name)
-                        )
-                    } else if (status == "SUCCESS" || status == "APPROVED" || status == "CAPTURED") {
-                        recordLocalTransaction(
-                            id = paymentId ?: "VAULT${System.currentTimeMillis()}",
-                            amount = amount,
-                            status = "SUCCESS"
-                        )
-                        bridge?.sendResponse(mapOf(
-                            "status" to "success",
-                            "paymentId" to paymentId,
-                            "message" to "Payment of ₱${"%.2f".format(amount)} via $label successful!"
-                        ))
-                        uiState = MiniAppUiState.Idle
-                    } else {
-                        recordLocalTransaction(
-                            id = paymentId ?: "VAULT${System.currentTimeMillis()}",
-                            amount = amount,
-                            status = status
-                        )
-                        bridge?.sendResponse(mapOf(
-                            "status" to status.lowercase(),
-                            "paymentId" to paymentId,
-                            "message" to "Payment is $status."
-                        ))
-                        uiState = MiniAppUiState.Idle
-                    }
-                }.onFailure { error ->
-                    val errorMsg = error.message ?: "Vault payment failed"
-                    bridge?.sendError(errorMsg)
-                    uiState = MiniAppUiState.Error(errorMsg)
-                }
-            } catch (e: Exception) {
-                val errorMsg = "An unexpected error occurred: ${e.message}"
-                bridge?.sendError(errorMsg)
-                uiState = MiniAppUiState.Error(errorMsg)
-            }
-        }
+        val message = "Direct card entry is not supported. Use SwiftPay hosted checkout instead."
+        bridge?.sendError(message)
+        uiState = MiniAppUiState.Error(message)
     }
 
     fun onSaveSettings(data: Map<String, String>) {
         viewModelScope.launch {
             uiState = MiniAppUiState.Processing("Saving settings...")
-            data["apiKey"]?.takeIf { it.isNotBlank() }?.let { settingsManager.saveApiKey(it) }
-            data["baseUrl"]?.takeIf { it.isNotBlank() }?.let { settingsManager.saveBaseUrl(it) }
-            data["merchantId"]?.takeIf { it.isNotBlank() }?.let { settingsManager.saveMerchantId(it) }
-            data["terminalId"]?.takeIf { it.isNotBlank() }?.let { settingsManager.saveTerminalId(it) }
             data["merchantAlias"]?.takeIf { it.isNotBlank() }?.let { settingsManager.saveMerchantAlias(it) }
 
-            bridge?.sendResponse(mapOf("status" to "saved", "message" to "SwiftPay Settings saved successfully!"))
+            bridge?.sendResponse(mapOf(
+                "status" to "saved",
+                "message" to "SwiftPay credentials are managed securely by the payment service."
+            ))
             uiState = MiniAppUiState.Idle
         }
     }
 
     fun getSettings() {
         viewModelScope.launch {
-            val credentials = settingsManager.loadSwiftPayCredentials()
+            val hasBackendSession = !settingsManager.backendAccessToken.first().isNullOrBlank()
             val alias = settingsManager.merchantAlias.first() ?: ""
             bridge?.sendResponse(
                 mapOf(
-                    "hasApiKey" to credentials.hasApiKey.toString(),
-                    "apiKey" to (credentials.apiKey ?: ""),
-                    "baseUrl" to (credentials.baseUrl ?: ""),
-                    "merchantId" to (credentials.merchantId ?: ""),
-                    "terminalId" to (credentials.terminalId ?: ""),
+                    "hasApiKey" to hasBackendSession.toString(),
+                    "managedByServer" to "true",
+                    "apiKey" to "",
+                    "baseUrl" to "",
+                    "merchantId" to "",
+                    "terminalId" to "",
                     "merchantAlias" to alias
                 )
             )
@@ -540,8 +386,6 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private var lastLocalCreditTime: Long = 0
-
     private suspend fun recordLocalTransaction(
         id: String,
         amount: Double,
@@ -549,7 +393,6 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     ) {
         val normalizedStatus = normalizePaymentStatus(status)
         var actualAmount = amount
-        var shouldCredit = false
 
         val existingTx = repository.getAllTransactions().first().find { it.transactionId == id }
 
@@ -560,13 +403,6 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
         if (existingTx != null) {
             if (actualAmount <= 0.0) {
                 actualAmount = existingTx.amount
-            }
-            if (normalizedStatus == "SUCCESS" && normalizePaymentStatus(existingTx.status) != "SUCCESS") {
-                shouldCredit = true
-            }
-        } else {
-            if (normalizedStatus == "SUCCESS") {
-                shouldCredit = true
             }
         }
 
@@ -579,22 +415,13 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
             )
         )
 
-        if (shouldCredit && actualAmount > 0.0) {
-            val currentBalStr = settingsManager.walletBalance.first().takeUnless { it.isNullOrBlank() } ?: "0.0"
-            val currentBal = currentBalStr.toDoubleOrNull() ?: 0.0
-            val newBal = currentBal + actualAmount
-
-            settingsManager.saveWalletBalance(newBal.toString())
-            lastLocalCreditTime = System.currentTimeMillis()
-            bridge?.sendResponse(newBal)
-        }
     }
 
     private fun normalizePaymentStatus(rawStatus: String?): String {
         val s = rawStatus?.uppercase() ?: return "PENDING"
         return when {
-            s in listOf("SUCCESS", "PAYMENT_SUCCESS", "CAPTURED", "COMPLETED", "APPROVED", "AUTHORIZED") -> "SUCCESS"
-            s in listOf("FAILED", "PAYMENT_FAILED", "DECLINED", "REJECTED", "EXPIRED", "PAYMENT_EXPIRED", "CANCELLED", "CANCELED") -> "FAILED"
+            s in listOf("SUCCESS", "PAYMENT_SUCCESS", "CAPTURED", "COMPLETED", "APPROVED", "AUTHORIZED", "EXECUTED", "PAID") -> "SUCCESS"
+            s in listOf("FAILED", "PAYMENT_FAILED", "DECLINED", "REJECTED", "ERROR", "EXPIRED", "PAYMENT_EXPIRED", "CANCELLED", "CANCELED") -> "FAILED"
             else -> "PENDING"
         }
     }
@@ -605,7 +432,7 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
         if (paymentId.isBlank() || inFlightStatusChecks.contains(paymentId)) return
 
         val cachedStatus = transactionStatusMap[paymentId]?.status?.uppercase()
-        if (cachedStatus in listOf("SUCCESS", "FAILED", "EXPIRED", "CANCELLED", "DECLINED")) {
+        if (cachedStatus in listOf("SUCCESS", "EXECUTED", "FAILED", "REJECTED", "ERROR", "EXPIRED", "CANCELLED", "CANCELED", "DECLINED")) {
             return
         }
 
@@ -657,60 +484,7 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun handleDeepLink(linkId: String?, providedStatus: String? = null) {
         if (linkId.isNullOrBlank()) return
-
-        if (!providedStatus.isNullOrBlank()) {
-            viewModelScope.launch {
-                try {
-                    val normalized = normalizePaymentStatus(providedStatus)
-
-                    val is3DSSuccess = providedStatus.uppercase() in listOf(
-                        "SUCCESS", "CAPTURED", "COMPLETED", "AUTHORIZED", "APPROVED"
-                    )
-                    val is3DSFailed = providedStatus.uppercase() in listOf(
-                        "FAILED", "DECLINED", "REJECTED", "CANCELLED", "CANCELED"
-                    )
-
-                    recordLocalTransaction(id = linkId, amount = 0.0, status = normalized)
-
-                    if (pendingCheckoutId == linkId) {
-                        threeDSecureTimeoutJob?.cancel()
-                        pendingCheckoutId = null
-
-                        if (is3DSSuccess) {
-                            Log.i("MiniAppViewModel", "✅ SwiftPay verification successful for $linkId")
-                            bridge?.sendResponse(mapOf(
-                                "status" to "success",
-                                "paymentId" to linkId,
-                                "verificationStatus" to providedStatus
-                            ))
-                        } else if (is3DSFailed) {
-                            Log.w("MiniAppViewModel", "❌ SwiftPay verification failed for $linkId: $providedStatus")
-                            bridge?.sendError("SwiftPay verification failed: $providedStatus")
-                        } else {
-                            bridge?.sendResponse(mapOf(
-                                "status" to normalized.lowercase(),
-                                "paymentId" to linkId,
-                                "verificationStatus" to providedStatus
-                            ))
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MiniAppViewModel", "Error processing response for $linkId", e)
-                }
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                fetchPaymentStatus(linkId)
-                if (pendingCheckoutId != linkId) {
-                    checkPendingPaymentStatus()
-                }
-            } catch (e: Exception) {
-                Log.e("MiniAppViewModel", "Error handling deep link for $linkId", e)
-            }
-        }
+        fetchPaymentStatus(linkId)
     }
 
     private suspend fun checkPendingPaymentStatus() {
@@ -727,21 +501,16 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
                 val rawStatus = response?.status ?: response?.paymentStatus
                 val status = rawStatus?.uppercase()
 
-                if (status != null && status in listOf("SUCCESS", "CAPTURED", "COMPLETED", "APPROVED", "AUTHORIZED")) {
+                if (status != null && status in listOf("SUCCESS", "EXECUTED", "PAID", "CAPTURED", "COMPLETED", "APPROVED", "AUTHORIZED")) {
                     threeDSecureTimeoutJob?.cancel()
                     pendingCheckoutId = null
-
-                    val currentLocalBalance = walletBalance.value
-                    val freshBalance = service.getWalletBalance()
-                    if (freshBalance > currentLocalBalance) {
-                        settingsManager.saveWalletBalance(freshBalance.toString())
-                    }
 
                     recordLocalTransaction(
                         id = checkoutId,
                         amount = response?.amount ?: 0.0,
                         status = "SUCCESS"
                     )
+                    refreshBalance()
 
                     bridge?.sendResponse(mapOf(
                         "status" to "success",
@@ -752,7 +521,7 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
                     uiState = MiniAppUiState.Idle
                     Log.i("MiniAppViewModel", "✅ Checkout $checkoutId completed successfully via status polling!")
                     break
-                } else if (status != null && status in listOf("FAILED", "DECLINED", "REJECTED", "EXPIRED", "CANCELLED")) {
+                } else if (status != null && status in listOf("FAILED", "DECLINED", "REJECTED", "ERROR", "EXPIRED", "CANCELLED", "CANCELED")) {
                     threeDSecureTimeoutJob?.cancel()
                     pendingCheckoutId = null
 

@@ -6,13 +6,6 @@ val localProps = Properties().also { props ->
     if (f.exists()) f.inputStream().use { props.load(it) }
 }
 
-fun secretProperty(name: String, defaultValue: String = "MISSING_KEY"): String {
-    return providers.gradleProperty(name).orNull
-        ?: providers.environmentVariable(name).orNull
-        ?: localProps.getProperty(name)
-        ?: defaultValue
-}
-
 fun optionalProperty(name: String): String {
     return providers.gradleProperty(name).orNull
         ?: providers.environmentVariable(name).orNull
@@ -28,6 +21,10 @@ val APP_SERVER_URL_PROP: String = providers.gradleProperty("APP_SERVER_URL").orN
 val APP_SERVER_KEY_PROP: String = providers.gradleProperty("APP_SERVER_KEY").orNull
     ?: providers.environmentVariable("APP_SERVER_KEY").orNull
     ?: localProps.getProperty("APP_SERVER_KEY")
+    ?: ""
+val PAYMENT_BACKEND_URL_PROP: String = providers.gradleProperty("PAYMENT_BACKEND_URL").orNull
+    ?: providers.environmentVariable("PAYMENT_BACKEND_URL").orNull
+    ?: localProps.getProperty("PAYMENT_BACKEND_URL")
     ?: ""
 
 plugins {
@@ -50,31 +47,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val swiftPayAccessKey = optionalProperty("SWIFTPAY_ACCESS_KEY").ifBlank { secretProperty("SWIFTPAY_API_KEY") }
-        val swiftPaySecretKey = optionalProperty("SWIFTPAY_SECRET_KEY")
-        val swiftPayBaseUrl = optionalProperty("SWIFTPAY_BASE_URL").takeUnless { it.isBlank() } ?: "https://api.pay.live.swiftpay.ph/api"
-        val swiftPayMerchantId = optionalProperty("SWIFTPAY_MERCHANT_ID")
-        val swiftPayTerminalId = optionalProperty("SWIFTPAY_TERMINAL_ID")
-        val resendKey = secretProperty("RESEND_API_KEY")
-        val otpSender = optionalProperty("OTP_SENDER_EMAIL").takeUnless { it.isBlank() } ?: "onboarding@resend.dev"
-        val swiftPaySuccess = optionalProperty("SWIFTPAY_SUCCESS_REDIRECT_URL").takeUnless { it.isBlank() } ?: "https://api.pay.live.swiftpay.ph/success"
-        val swiftPayFailure = optionalProperty("SWIFTPAY_FAILURE_REDIRECT_URL").takeUnless { it.isBlank() } ?: "https://api.pay.live.swiftpay.ph/failure"
-        val swiftPayCancel = optionalProperty("SWIFTPAY_CANCEL_REDIRECT_URL").takeUnless { it.isBlank() } ?: "https://api.pay.live.swiftpay.ph/cancel"
         val appServerKey = optionalProperty("APP_SERVER_KEY")
 
-        buildConfigField("String", "SWIFTPAY_ACCESS_KEY", "\"$swiftPayAccessKey\"")
-        buildConfigField("String", "SWIFTPAY_SECRET_KEY", "\"$swiftPaySecretKey\"")
-        buildConfigField("String", "SWIFTPAY_API_KEY", "\"$swiftPayAccessKey\"")
-        buildConfigField("String", "SWIFTPAY_BASE_URL", "\"$swiftPayBaseUrl\"")
-        buildConfigField("String", "SWIFTPAY_MERCHANT_ID", "\"$swiftPayMerchantId\"")
-        buildConfigField("String", "SWIFTPAY_TERMINAL_ID", "\"$swiftPayTerminalId\"")
-        buildConfigField("String", "RESEND_API_KEY", "\"$resendKey\"")
-        buildConfigField("String", "OTP_SENDER_EMAIL", "\"$otpSender\"")
-        buildConfigField("String", "SWIFTPAY_SUCCESS_REDIRECT_URL", "\"$swiftPaySuccess\"")
-        buildConfigField("String", "SWIFTPAY_FAILURE_REDIRECT_URL", "\"$swiftPayFailure\"")
-        buildConfigField("String", "SWIFTPAY_CANCEL_REDIRECT_URL", "\"$swiftPayCancel\"")
         buildConfigField("String", "APP_SERVER_URL", "\"${optionalProperty("APP_SERVER_URL")}\"")
         buildConfigField("String", "APP_SERVER_KEY", "\"${appServerKey}\"")
+        buildConfigField("String", "PAYMENT_BACKEND_URL", "\"${optionalProperty("PAYMENT_BACKEND_URL")}\"")
     }
 
     signingConfigs {
@@ -95,6 +72,12 @@ android {
             // Enforce presence of critical server config for release builds
             if (APP_SERVER_URL_PROP.isBlank()) {
                 throw GradleException("APP_SERVER_URL must be set in local.properties, environment or gradle properties for release builds")
+            }
+            if (!APP_SERVER_URL_PROP.startsWith("https://")) {
+                throw GradleException("APP_SERVER_URL must use HTTPS for release builds")
+            }
+            if (PAYMENT_BACKEND_URL_PROP.isBlank() || !PAYMENT_BACKEND_URL_PROP.startsWith("https://")) {
+                throw GradleException("PAYMENT_BACKEND_URL must be set and use HTTPS for release builds")
             }
             if (APP_SERVER_KEY_PROP.isBlank()) {
                 throw GradleException("APP_SERVER_KEY must be set in local.properties, environment or gradle properties for release builds")

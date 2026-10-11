@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myapplication.BuildConfig
 import com.example.myapplication.data.SettingsManager
 import com.example.myapplication.ui.theme.*
 import kotlinx.coroutines.launch
@@ -33,11 +34,9 @@ fun ApiKeysScreen() {
     val settings = SettingsManager(context)
     val scope = rememberCoroutineScope()
 
-    val apiKeyFlow = settings.apiKey.collectAsState(initial = null)
-    val baseUrlFlow = settings.baseUrl.collectAsState(initial = null)
-    val midFlow = settings.merchantId.collectAsState(initial = null)
-    val terminalFlow = settings.terminalId.collectAsState(initial = null)
+    val backendAccessToken by settings.backendAccessToken.collectAsState(initial = null)
     val aliasFlow = settings.merchantAlias.collectAsState(initial = null)
+    val backendUrl = BuildConfig.APP_SERVER_URL.ifBlank { "Backend URL not configured" }
 
     var editingAlias by remember { mutableStateOf(false) }
     var aliasInput by remember(aliasFlow.value) { mutableStateOf(aliasFlow.value ?: "") }
@@ -53,9 +52,7 @@ fun ApiKeysScreen() {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Text("SwiftPay API Credentials", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                },
+                title = { Text("Payment Service", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = FastPayNavy
                 )
@@ -83,7 +80,7 @@ fun ApiKeysScreen() {
                 ) {
                     Icon(Icons.Rounded.Warning, null, tint = Color(0xFFF57C00), modifier = Modifier.size(20.dp))
                     Text(
-                        "Keep your API credentials secure and confidential.",
+                        "SwiftPay merchant credentials are held by the secure payment backend, not on this device.",
                         color = Color(0xFFF57C00),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
@@ -99,61 +96,13 @@ fun ApiKeysScreen() {
                 elevation = CardDefaults.cardElevation(defaultElevation = if (isDarkTheme) 0.dp else 2.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    CredentialRow(
-                        label = "SwiftPay Access Key",
-                        value = apiKeyFlow.value,
-                        isSecret = false,
-                        isVisible = true,
-                        onCopy = {
-                            apiKeyFlow.value?.let {
-                                clipboardManager.setPrimaryClip(ClipData.newPlainText("Access Key", it))
-                                Toast.makeText(context, "Access Key copied", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-
+                    Text("Backend", fontWeight = FontWeight.Bold, color = textColor)
+                    Text(backendUrl, color = secondaryTextColor, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.LightGray.copy(alpha = 0.3f))
-
-                    CredentialRow(
-                        label = "API Base URL",
-                        value = baseUrlFlow.value ?: "https://api.pay.live.swiftpay.ph/api",
-                        isSecret = false,
-                        isVisible = true,
-                        onCopy = {
-                            val url = baseUrlFlow.value ?: "https://api.pay.live.swiftpay.ph/api"
-                            clipboardManager.setPrimaryClip(ClipData.newPlainText("Base URL", url))
-                            Toast.makeText(context, "Base URL copied", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.LightGray.copy(alpha = 0.3f))
-
-                    CredentialRow(
-                        label = "Merchant ID (MID)",
-                        value = midFlow.value,
-                        isSecret = false,
-                        isVisible = true,
-                        onCopy = {
-                            midFlow.value?.let {
-                                clipboardManager.setPrimaryClip(ClipData.newPlainText("Merchant ID", it))
-                                Toast.makeText(context, "Merchant ID copied", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.LightGray.copy(alpha = 0.3f))
-
-                    CredentialRow(
-                        label = "Terminal ID",
-                        value = terminalFlow.value,
-                        isSecret = false,
-                        isVisible = true,
-                        onCopy = {
-                            terminalFlow.value?.let {
-                                clipboardManager.setPrimaryClip(ClipData.newPlainText("Terminal ID", it))
-                                Toast.makeText(context, "Terminal ID copied", Toast.LENGTH_SHORT).show()
-                            }
-                        }
+                    Text(
+                        if (backendAccessToken.isNullOrBlank()) "Sign in to authenticate with the payment service" else "Authenticated session active",
+                        color = if (backendAccessToken.isNullOrBlank()) Color(0xFFE53935) else Color(0xFF16835D),
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }

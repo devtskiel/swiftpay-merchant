@@ -432,61 +432,57 @@
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
         </div>
-        <div class="balance-badge">SwiftPay Real-Time Account</div>
+        <div class="balance-badge">Available Transfer Balance</div>
         <div id="balance-display" class="balance-amount">₱ --.--</div>
     </div>
 
     <!-- Quick Actions -->
     <div class="action-grid">
         <div class="action-card" onclick="openPage('topup-page')">
-            <div class="action-icon">➕</div>
-            <div class="action-title">Wallet Top Up</div>
-        </div>
-        <div class="action-card" onclick="openPage('card-payment-page')">
             <div class="action-icon">💳</div>
-            <div class="action-title">Tap to Pay (NFC)</div>
+            <div class="action-title">Collect</div>
         </div>
-        <div class="action-card" onclick="openPage('qr-page')">
-            <div class="action-icon">📱</div>
-            <div class="action-title">QR Ph Code</div>
+        <div class="action-card" onclick="openPage('payment-link-page')">
+            <div class="action-icon">🔗</div>
+            <div class="action-title">Payment Link</div>
         </div>
         <div class="action-card" onclick="openPage('disbursement-page')">
-            <div class="action-icon">💸</div>
-            <div class="action-title">Send Money</div>
+            <div class="action-icon">↗</div>
+            <div class="action-title">Transfer</div>
+        </div>
+        <div class="action-card" onclick="openPage('api-docs-page')">
+            <div class="action-icon">📄</div>
+            <div class="action-title">API Docs</div>
         </div>
     </div>
 
-    <!-- API Credentials Panel -->
+    <!-- Payment Service Panel -->
     <div class="page-content">
         <div class="section-title">
-            <span>SwiftPay Credentials</span>
-            <span style="font-size: 13px; color: var(--fp-blue); cursor: pointer;" onclick="openPage('api-docs-page')">Edit Settings</span>
+            <span>Payment Service</span>
+            <span style="font-size: 13px; color: var(--fp-blue); cursor: pointer;" onclick="openPage('api-docs-page')">Details</span>
         </div>
 
         <div class="api-card">
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">API ACCESS KEY</div>
-            <div id="api-pub-key" class="api-key-val">Loading...</div>
-
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin-top: 12px;">BASE URL</div>
-            <div id="api-sec-key" class="api-key-val">Loading...</div>
-
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin-top: 12px;">MERCHANT ID</div>
-            <div id="api-mid" class="api-key-val">Loading...</div>
+            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">SESSION</div>
+            <div id="payment-service-status" class="api-key-val">Checking...</div>
+            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin-top: 12px;">PROVIDER CREDENTIALS</div>
+            <div class="api-key-val">Managed securely by the payment backend</div>
         </div>
     </div>
 
-    <!-- Self Hosted Wallet Top Up Page -->
+    <!-- Hosted payment collection page -->
     <div id="topup-page" class="page">
         <div class="navbar">
             <div class="btn-back" onclick="closePage('topup-page')" aria-label="Go back">‹</div>
-            <span class="navbar-title">Wallet Top Up</span>
+            <span class="navbar-title">Collect Payment</span>
             <div style="margin-left:auto; font-size:11px; background:#DCFCE7; color:#15803D; font-weight:800; padding:6px 12px; border-radius:100px;">
                 🔒 SSL Encrypted
             </div>
         </div>
         <div class="page-content">
             <div class="tap-pay-card">
-                <div class="input-label" style="text-align:center;">Enter Top Up Amount</div>
+                <div class="input-label" style="text-align:center;">Payment Amount</div>
                 <div class="amount-field">
                     <div class="amount-currency">₱</div>
                     <input type="number" id="topup-amount" class="amount-input" placeholder="0.00" oninput="updateTopUpSummary()">
@@ -499,75 +495,30 @@
                 </div>
             </div>
 
-            <div class="section-title">Select Payment Channel</div>
+            <div class="section-title">Checkout Method</div>
             <div class="channel-grid">
-                <div class="channel-card selected" id="channel-swiftpay" onclick="selectChannel('swiftpay', 'SWIFTPAY_CHECKOUT')">
+                <div class="channel-card selected">
                     <div class="channel-icon">⚡</div>
                     <div class="channel-info">
-                        <div class="channel-title">SwiftPay Universal Checkout</div>
-                        <div class="channel-desc">Instant 1-Click Pay via GCash, Maya, Cards & QR Ph</div>
+                        <div class="channel-title">SwiftPay Hosted Checkout</div>
+                        <div class="channel-desc">Continue to SwiftPay to choose an available payment method.</div>
                     </div>
-                    <input type="radio" name="topup-opt" checked style="accent-color:var(--fp-blue)">
-                </div>
-
-                <div class="channel-card" id="channel-gcash" onclick="selectChannel('gcash', 'GCASH')">
-                    <div class="channel-icon">💙</div>
-                    <div class="channel-info">
-                        <div class="channel-title">GCash Direct</div>
-                        <div class="channel-desc">Top up directly via your GCash E-Wallet</div>
-                    </div>
-                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
-                </div>
-
-                <div class="channel-card" id="channel-maya" onclick="selectChannel('maya', 'MAYA')">
-                    <div class="channel-icon">💚</div>
-                    <div class="channel-info">
-                        <div class="channel-title">Maya Wallet</div>
-                        <div class="channel-desc">Instant cash-in from Maya account</div>
-                    </div>
-                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
-                </div>
-
-                <div class="channel-card" id="channel-qrph" onclick="selectChannel('qrph', 'QRPH')">
-                    <div class="channel-icon">📱</div>
-                    <div class="channel-info">
-                        <div class="channel-title">QR Ph Instant Scan</div>
-                        <div class="channel-desc">Scan with BDO, BPI, UnionBank, Metrobank & all PH banks</div>
-                    </div>
-                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
-                </div>
-
-                <div class="channel-card" id="channel-card" onclick="selectChannel('card', 'CARD')">
-                    <div class="channel-icon">💳</div>
-                    <div class="channel-info">
-                        <div class="channel-title">Credit / Debit Card</div>
-                        <div class="channel-desc">Visa, Mastercard, JCB, American Express</div>
-                    </div>
-                    <input type="radio" name="topup-opt" style="accent-color:var(--fp-blue)">
                 </div>
             </div>
 
             <div class="summary-card">
                 <div class="summary-row">
-                    <span>Top Up Amount</span>
+                    <span>Payment Amount</span>
                     <span id="sum-amount">₱ 0.00</span>
-                </div>
-                <div class="summary-row">
-                    <span>Processing Fee</span>
-                    <span style="color:#10B981; font-weight:700;">FREE (₱ 0.00)</span>
-                </div>
-                <div class="summary-row total">
-                    <span>Total Payable</span>
-                    <span id="sum-total">₱ 0.00</span>
                 </div>
             </div>
 
             <div class="security-badge">
-                <span>🛡️ PCI-DSS Level 1 Certified • 256-bit SSL Security</span>
+                <span>🔒 Payment details are handled on SwiftPay checkout</span>
             </div>
 
             <button class="btn-action" id="topup-submit-btn" onclick="executeTopUp()" style="margin-top:20px">
-                <span id="topup-btn-label">Top Up via SwiftPay</span>
+                <span id="topup-btn-label">Continue to Checkout</span>
             </button>
         </div>
     </div>
@@ -576,29 +527,15 @@
     <div id="api-docs-page" class="page">
         <div class="navbar">
             <div class="btn-back" onclick="closePage('api-docs-page')">‹</div>
-            <span class="navbar-title">SwiftPay API Settings</span>
+            <span class="navbar-title">Payment Service</span>
         </div>
         <div class="page-content">
-            <div class="section-title">Gateway Settings</div>
+            <div class="section-title">Secure connection</div>
 
             <div class="api-card">
-                <div class="input-group">
-                    <label class="input-label">SWIFTPAY ACCESS KEY</label>
-                    <input type="text" id="setting-apiKey" class="modern-input" placeholder="Enter SwiftPay Access Key">
-                </div>
-                <div class="input-group">
-                    <label class="input-label">SWIFTPAY BASE URL</label>
-                    <input type="text" id="setting-baseUrl" class="modern-input" placeholder="https://api.pay.live.swiftpay.ph/api">
-                </div>
-                <div class="input-group">
-                    <label class="input-label">MERCHANT ID</label>
-                    <input type="text" id="setting-merchantId" class="modern-input" placeholder="Enter Merchant ID">
-                </div>
-                <div class="input-group">
-                    <label class="input-label">TERMINAL ID</label>
-                    <input type="text" id="setting-terminalId" class="modern-input" placeholder="Enter Terminal ID">
-                </div>
-                <button class="btn-action" onclick="saveSettings()">Save Settings</button>
+                <div class="input-label">SESSION STATUS</div>
+                <div id="payment-service-detail-status" class="api-key-val">Checking...</div>
+                <p class="channel-desc">SwiftPay merchant credentials are stored by the payment backend and are not available to this page.</p>
             </div>
         </div>
     </div>
@@ -624,53 +561,28 @@
     <div id="qr-page" class="page">
         <div class="navbar">
             <div class="btn-back" onclick="closePage('qr-page')">‹</div>
-            <span class="navbar-title">QR Ph Dynamic Code</span>
+            <span class="navbar-title">QR payments</span>
         </div>
         <div class="page-content" style="text-align:center">
-            <div class="input-group" style="text-align:left">
-                <label class="input-label">Amount (₱)</label>
-                <input type="number" id="qr-amount" class="modern-input" placeholder="0.00">
-            </div>
-            <button class="btn-action" onclick="generateQR()">Generate QR Ph Code</button>
-            <div id="qr-container" class="hidden" style="margin-top:32px;background:#fff;padding:24px;border-radius:24px">
-                <img id="qr-code-img" src="" style="width:200px">
-                <div style="margin-top:16px;font-weight:800;color:var(--fp-blue)">Ready to scan with any QR Ph app</div>
-            </div>
+            <div class="api-card">QR payment creation is not currently available through the configured SwiftPay service.</div>
         </div>
     </div>
 
     <div id="card-payment-page" class="page">
         <div class="navbar">
             <div class="btn-back" onclick="closePage('card-payment-page')">‹</div>
-            <span class="navbar-title">Tap to Pay (NFC)</span>
+            <span class="navbar-title">Card payments</span>
         </div>
-        <div class="page-content">
-            <div class="tap-pay-card">
-                <div class="input-label">Enter Amount</div>
-                <div class="amount-field">
-                    <div class="amount-currency">₱</div>
-                    <input type="number" id="card-amount" class="amount-input" placeholder="0.00" oninput="updateTapPayPreview()">
-                </div>
-                <div class="amount-presets" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px">
-                    <button class="preset-chip" onclick="setAmountPreset(100)">100</button>
-                    <button class="preset-chip" onclick="setAmountPreset(500)">500</button>
-                    <button class="preset-chip" onclick="setAmountPreset(1000)">1K</button>
-                    <button class="preset-chip" onclick="setAmountPreset(5000)">5K</button>
-                </div>
-            </div>
-            <div id="nfc-status" class="nfc-status-card" style="margin-top:20px">
-                <div id="nfc-status-text" class="card-title">Reader Ready</div>
-            </div>
-            <button class="btn-action" id="nfc-start-btn" onclick="startNfcPay()" style="margin-top:24px">
-                <span id="nfc-start-label">Start NFC Reader</span>
-            </button>
+        <div class="page-content" style="text-align:center">
+            <div class="api-card">Direct card and tap-to-phone payments are not available through the configured SwiftPay service. Use hosted checkout instead.</div>
+            <button class="btn-action" onclick="closePage('card-payment-page'); openPage('topup-page')" style="margin-top:20px">Open hosted checkout</button>
         </div>
     </div>
 
     <div id="disbursement-page" class="page">
         <div class="navbar">
             <div class="btn-back" onclick="closePage('disbursement-page')">‹</div>
-            <span class="navbar-title">SwiftPay Send Money</span>
+            <span class="navbar-title">Transfer</span>
         </div>
         <div class="page-content">
             <div class="input-group">
@@ -702,8 +614,6 @@
     </div>
 
     <script>
-        let selectedTopUpChannel = 'SWIFTPAY_CHECKOUT';
-
         function post(action, data = null) {
             const sdk = window.SwiftPaySDK || window.MayaSDK;
             if (sdk) sdk.postMessage(JSON.stringify({ action, data }));
@@ -714,42 +624,24 @@
         }
         function closePage(id) { const p = document.getElementById(id); if (p) p.classList.remove('active'); }
         function getBalance() { post("get_balance"); }
-        function setAmountPreset(a) { document.getElementById('card-amount').value = a; updateTapPayPreview(); }
-        function updateTapPayPreview() {}
-        function setNfcStatus(s, t) { const sc = document.getElementById('nfc-status'); sc.className = `nfc-status-card is-visible is-${s}`; document.getElementById('nfc-status-text').innerText = t; }
-        function setNfcLoading(l) { const b = document.getElementById('nfc-start-btn'); b.disabled = l; document.getElementById('nfc-start-label').innerText = l ? 'Arming Reader...' : 'Start NFC Reader'; }
-        function startNfcPay() { const a = parseFloat(document.getElementById('card-amount').value); if (a > 0) { setNfcStatus('active', 'Preparing Reader'); setNfcLoading(true); post("scan_nfc_card", { amount: a }); } }
-        function generateQR() { const a = document.getElementById('qr-amount').value; if (a > 0) post("generate_dynamic_qr", { amount: parseFloat(a) }); }
         function generateLink() { const a = parseFloat(document.getElementById('link-amount').value) || 0; const d = document.getElementById('link-desc').value || "Payment Link"; post("create_payment_link", { currency: "PHP", description: d, amount: a }); }
 
         function setTopUpPreset(a) {
             document.getElementById('topup-amount').value = a;
             updateTopUpSummary();
         }
-        function selectChannel(id, val) {
-            selectedTopUpChannel = val;
-            document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('selected'));
-            document.querySelectorAll('.channel-card input').forEach(i => i.checked = false);
-            const target = document.getElementById('channel-' + id);
-            if (target) {
-                target.classList.add('selected');
-                const radio = target.querySelector('input');
-                if (radio) radio.checked = true;
-            }
-        }
         function updateTopUpSummary() {
             const a = parseFloat(document.getElementById('topup-amount').value) || 0;
             const formatted = "₱ " + a.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
             document.getElementById('sum-amount').innerText = formatted;
-            document.getElementById('sum-total').innerText = formatted;
-            document.getElementById('topup-btn-label').innerText = a > 0 ? `Pay ${formatted} via SwiftPay` : "Top Up via SwiftPay";
+            document.getElementById('topup-btn-label').innerText = a > 0 ? `Continue with ${formatted}` : "Continue to Checkout";
         }
         function executeTopUp() {
             const a = parseFloat(document.getElementById('topup-amount').value) || 0;
             if (a > 0) {
                 document.getElementById('topup-submit-btn').disabled = true;
-                document.getElementById('topup-btn-label').innerText = "Connecting to SwiftPay Gateway...";
-                post("request_payment", { amount: a, currency: "PHP", description: "SwiftPay Wallet Top Up" });
+                document.getElementById('topup-btn-label').innerText = "Opening hosted checkout...";
+                post("request_payment", { amount: a, currency: "PHP", description: "Payment collection" });
                 setTimeout(() => {
                     document.getElementById('topup-submit-btn').disabled = false;
                     updateTopUpSummary();
@@ -766,36 +658,16 @@
                 post("send_disbursement", { amount: a, bankCode: b, accountNumber: acc, recipientName: name });
             }
         }
-        function saveSettings() {
-            const apiKey = document.getElementById('setting-apiKey').value;
-            const baseUrl = document.getElementById('setting-baseUrl').value;
-            const merchantId = document.getElementById('setting-merchantId').value;
-            const terminalId = document.getElementById('setting-terminalId').value;
-            post("save_settings", { apiKey, baseUrl, merchantId, terminalId });
-        }
-
         window.onSwiftPayResponse = window.onMayaResponse = function(json) {
             const res = JSON.parse(json);
             if (typeof res.data === 'number') { document.getElementById('balance-display').innerText = "₱ " + res.data.toLocaleString(undefined, {minimumFractionDigits: 2}); return; }
-            if (res.data && res.data.status) {
-                const s = res.data.status.toLowerCase();
-                if (s === 'success' || s === 'captured' || s === 'approved') {
-                    setNfcStatus('success', 'Completed');
-                    setNfcLoading(false);
-                    setTimeout(getBalance, 500);
-                }
-            }
-            if (res.data && res.data.qrCodeBody) {
-                document.getElementById('qr-container').classList.remove('hidden');
-                document.getElementById('qr-code-img').src = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=" + encodeURIComponent(res.data.qrCodeBody);
-            }
-            if (res.data && (res.data.apiKey || res.data.hasApiKey)) {
-                if (res.data.apiKey) document.getElementById('api-pub-key').innerText = res.data.apiKey;
-                if (res.data.baseUrl) document.getElementById('api-sec-key').innerText = res.data.baseUrl;
-                if (res.data.merchantId) document.getElementById('api-mid').innerText = res.data.merchantId;
+            if (res.data && res.data.managedByServer) {
+                const status = res.data.hasApiKey === "true" ? "Merchant session active" : "Sign in required";
+                document.getElementById('payment-service-status').innerText = status;
+                document.getElementById('payment-service-detail-status').innerText = status;
             }
         };
-        setTimeout(getBalance, 800);
+        setTimeout(() => { getBalance(); post("get_settings"); }, 800);
     </script>
 </body>
 </html>
