@@ -30,7 +30,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.example.myapplication"
+        applicationId = "com.swiftpay.site"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
@@ -43,10 +43,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = localProps.getProperty("RELEASE_STORE_FILE")?.let { file(it) }
-            storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
-            keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
-            keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+            storeFile = optionalProperty("RELEASE_STORE_FILE").takeIf { it.isNotBlank() }?.let { file(it) }
+            storePassword = optionalProperty("RELEASE_STORE_PASSWORD").takeIf { it.isNotBlank() }
+            keyAlias = optionalProperty("RELEASE_KEY_ALIAS").takeIf { it.isNotBlank() }
+            keyPassword = optionalProperty("RELEASE_KEY_PASSWORD").takeIf { it.isNotBlank() }
         }
     }
 
