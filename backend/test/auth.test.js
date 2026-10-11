@@ -54,6 +54,35 @@ test("expired OTPs cannot create sessions", async () => {
   assert.equal(await auth.verifyOtp("merchant@example.com", "123456"), null);
 });
 
+test("OTP sessions receive roles from the active persistent merchant record", async () => {
+  let now = 1_000_000;
+  let record = { email: "support@swiftpay.site", role: "super_admin", status: "active" };
+  const sentCodes = [];
+  const config = {
+    allowedEmails: ["support@swiftpay.site"],
+    sessionSigningKey: "session-signing-key-that-is-at-least-32-bytes"
+  };
+  const auth = createOtpAuth(config, {
+    userStore: { getUser: async () => record },
+    now: () => now,
+    codeGenerator: () => "864209",
+    sendEmail: async (_email, code) => sentCodes.push(code)
+  });
+
+  await auth.requestOtp("support@swiftpay.site");
+  assert.deepEqual(sentCodes, ["864209"]);
+  const session = await auth.verifyOtp("support@swiftpay.site", "864209");
+  assert.equal(session.role, "super_admin");
+  assert.equal(session.expiresInSeconds, 60 * 60);
+  assert.equal((await createJwtVerifier(config)(session.accessToken)).role, "super_admin");
+
+  now += 60_001;
+  record = { ...record, status: "suspended" };
+  await auth.requestOtp("support@swiftpay.site");
+  assert.equal(sentCodes.length, 1);
+  assert.equal(await auth.verifyOtp("support@swiftpay.site", "864209"), null);
+});
+
 test("failed OTP delivery clears the challenge and allows an immediate retry", async () => {
   let shouldFail = true;
   const deliveredCodes = [];

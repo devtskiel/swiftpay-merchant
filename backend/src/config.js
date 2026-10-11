@@ -34,10 +34,12 @@ export function loadConfig(env = process.env) {
   }
   const allowedEmails = [
     ...env.AUTH_ALLOWED_EMAILS.split(","),
-    ...(env.AUTH_ADDITIONAL_ALLOWED_EMAILS || "").split(",")
+    ...(env.AUTH_ADDITIONAL_ALLOWED_EMAILS || "").split(","),
+    ...(env.SUPER_ADMIN_EMAILS || "").split(",")
   ].map((email) => email.trim().toLowerCase()).filter(Boolean);
+  const superAdminEmails = [...new Set((env.SUPER_ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean))];
   if (allowedEmails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
-    throw new Error("AUTH_ALLOWED_EMAILS and AUTH_ADDITIONAL_ALLOWED_EMAILS must contain valid comma-separated email addresses");
+    throw new Error("AUTH_ALLOWED_EMAILS, AUTH_ADDITIONAL_ALLOWED_EMAILS, and SUPER_ADMIN_EMAILS must contain valid comma-separated email addresses");
   }
 
   return {
@@ -47,6 +49,8 @@ export function loadConfig(env = process.env) {
     swiftPaySecretKey: secretKey,
     sessionSigningKey,
     allowedEmails: [...new Set(allowedEmails)],
+    superAdminEmails,
+    databaseUrl: env.DATABASE_URL?.trim() || null,
     resendApiKey: env.RESEND_API_KEY,
     otpFromEmail: env.OTP_FROM_EMAIL
   };

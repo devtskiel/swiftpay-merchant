@@ -1,4 +1,5 @@
 import express from "express";
+import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { z } from "zod";
@@ -41,6 +42,14 @@ const disbursementSchema = z.object({
   }).strict(),
   remarks: z.string().max(80).optional()
 }).strict();
+const merchantEmailSchema = z.string().trim().email().max(255).transform((email) => email.toLowerCase());
+const merchantStatusSchema = z.object({
+  status: z.enum(["active", "suspended", "removed"])
+}).strict();
+const adjustmentSchema = z.object({
+  amount: z.number().finite().min(-1_000_000).max(1_000_000).refine((amount) => amount !== 0),
+  reason: z.string().trim().min(3).max(500)
+}).strict();
 
 function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
@@ -63,7 +72,7 @@ function parse(schema, value) {
   return result.data;
 }
 
-function createAuthMiddleware(verifyAccessToken) {
+function createAuthMiddleware(verifyAccessToken, userStore) {
   return asyncRoute(async (req, res, next) => {
     const match = /^Bearer\s+([^\s]+)$/i.exec(req.get("authorization") || "");
     if (!match) {
@@ -74,11 +83,23 @@ function createAuthMiddleware(verifyAccessToken) {
     } catch {
       return res.status(401).json({ error: "unauthorized" });
     }
+    if (userStore) {
+      const user = await userStore.getUser(req.principal.sub.toLowerCase());
+      if (!user || user.status !== "active") return res.status(401).json({ error: "unauthorized" });
+      req.principal.role = user.role;
+    }
     next();
   });
 }
 
-export function createApp({ config, fetchImpl = fetch, verifyAccessToken, requestOtp, verifyOtp }) {
+function requireSuperAdmin(req, res, next) {
+  if (req.principal?.role !== "super_admin") {
+    return res.status(403).json({ error: "super_admin_required" });
+  }
+  next();
+}
+
+export function createApp({ config, fetchImpl = fetch, verifyAccessToken, requestOtp, verifyOtp, userStore }) {
   if (!verifyAccessToken) throw new Error("A JWT verifier is required");
   if (!requestOtp || !verifyOtp) throw new Error("OTP auth handlers are required");
   const app = express();
@@ -87,6 +108,10 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
   app.use(helmet());
+  app.use("/admin", express.static(fileURLToPath(new URL("../public/", import.meta.url)), {
+    index: "index.html",
+    maxAge: "1h"
+  }));
   app.use(express.json({ limit: "32kb", strict: true }));
   app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false }));
   app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
@@ -110,7 +135,51 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
     if (!session) return res.status(401).json({ error: "invalid_or_expired_code" });
     res.json(session);
   }));
-  app.use("/v1", createAuthMiddleware(verifyAccessToken));
+  app.use("/v1", createAuthMiddleware(verifyAccessToken, userStore));
+
+  app.get("/v1/admin/me", requireSuperAdmin, (req, res) => {
+    res.json({ email: req.principal.sub, role: req.principal.role });
+  });
+
+  app.get("/v1/admin/users", requireSuperAdmin, asyncRoute(async (_req, res) => {
+    res.json(await userStore.listUsers());
+  }));
+
+  app.post("/v1/admin/users", requireSuperAdmin, asyncRoute(async (req, res) => {
+    const input = parse(z.object({ email: merchantEmailSchema }).strict(), req.body);
+    const user = await userStore.createMerchant(input.email, req.principal.sub);
+    res.status(201).json(user);
+  }));
+
+  app.patch("/v1/admin/users/:email", requireSuperAdmin, asyncRoute(async (req, res) => {
+    const email = merchantEmailSchema.parse(req.params.email);
+    if (email === req.principal.sub.toLowerCase()) {
+      throw new SwiftPayError(400, "You cannot change your own super-admin account");
+    }
+    const input = parse(merchantStatusSchema, req.body);
+    const user = await userStore.setMerchantStatus(email, input.status, req.principal.sub);
+    res.json(user);
+  }));
+
+  app.get("/v1/admin/audit", requireSuperAdmin, asyncRoute(async (req, res) => {
+    const limit = z.coerce.number().int().min(1).max(200).catch(100).parse(req.query.limit);
+    res.json(await userStore.listAudit(limit));
+  }));
+
+  app.get("/v1/admin/balance-adjustments", requireSuperAdmin, asyncRoute(async (req, res) => {
+    const limit = z.coerce.number().int().min(1).max(200).catch(100).parse(req.query.limit);
+    const [total, adjustments] = await Promise.all([
+      userStore.adjustmentTotal(),
+      userStore.listAdjustments(limit)
+    ]);
+    res.json({ total, adjustments, affectsProviderFunds: false });
+  }));
+
+  app.post("/v1/admin/balance-adjustments", requireSuperAdmin, asyncRoute(async (req, res) => {
+    const input = parse(adjustmentSchema, req.body);
+    const adjustment = await userStore.createAdjustment(input.amount, input.reason, req.principal.sub);
+    res.status(201).json({ ...adjustment, affectsProviderFunds: false });
+  }));
 
   app.post("/v1/payments/orders", requireScope("swiftpay:payments:write"), asyncRoute(async (req, res) => {
     const input = parse(orderSchema, req.body);
@@ -189,9 +258,51 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
       creditInformation: { amount: input.amount, ...(input.remarks ? { remarks: input.remarks } : {}) },
       recipientInformation: input.recipientInformation
     };
-    const result = await requestProvider("disbursements/send", { method: "POST", auth: "basic", body: payload });
+    const auditId = userStore
+      ? await userStore.createTransferIntent(req.principal.sub, input.referenceNo, {
+        referenceNo: input.referenceNo,
+        amount: input.amount,
+        channel: input.channel,
+        institutionCode: input.institutionCode
+      })
+      : null;
+    let result;
+    try {
+      result = await requestProvider("disbursements/send", { method: "POST", auth: "basic", body: payload });
+    } catch (error) {
+      if (auditId !== null) {
+        await userStore.finishTransferIntent(
+          auditId,
+          error instanceof SwiftPayError && error.status < 500 ? "rejected" : "unknown",
+          input.referenceNo,
+          { error: error instanceof SwiftPayError && error.status < 500 ? error.message : "Provider outcome requires reconciliation" }
+        );
+      }
+      throw error;
+    }
     if (typeof result.data?.id !== "string" || !z.string().uuid().safeParse(result.data.id).success) {
+      if (auditId !== null) {
+        await userStore.finishTransferIntent(auditId, "unknown", input.referenceNo, {
+          error: "Provider accepted a response with an invalid transfer ID; reconcile before retrying"
+        });
+      }
       throw new SwiftPayError(502, "SwiftPay did not return a valid disbursement ID");
+    }
+    if (auditId !== null) {
+      try {
+        await userStore.finishTransferIntent(auditId, "accepted", result.data.id, {
+          referenceNo: input.referenceNo,
+          providerStatus: "PENDING"
+        });
+      } catch (error) {
+        console.error("Transfer was accepted but its audit outcome could not be saved");
+        return res.status(202).json({
+          id: result.data.id,
+          referenceNo: input.referenceNo,
+          status: "PENDING",
+          auditStatus: "reconciliation_required"
+        });
+      }
     }
     res.status(202).json({ id: result.data?.id, referenceNo: input.referenceNo, status: "PENDING" });
   }));
