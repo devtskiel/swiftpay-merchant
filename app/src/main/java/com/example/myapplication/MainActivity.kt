@@ -258,7 +258,8 @@ fun SwiftPayApp() {
                         Route.Home -> NavEntry(key) {
                             HomeScreen(
                                 onLaunchMiniApp = { path -> navController.navigate(Route.MiniApp(path)) },
-                                onNavigateToWallet = { navController.navigate(Route.Wallet) }
+                                onNavigateToWallet = { navController.navigate(Route.Wallet) },
+                                onProfileClick = { navController.navigate(Route.Profile) }
                             )
                         }
                         is Route.MiniApp -> NavEntry(key) {
