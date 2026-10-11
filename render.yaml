@@ -20,7 +20,9 @@ services:
         sync: false
       - key: AUTH_ALLOWED_EMAILS
         sync: false
+      - key: AUTH_ADDITIONAL_ALLOWED_EMAILS
+        value: support@swiftpay.site
       - key: RESEND_API_KEY
         sync: false
       - key: OTP_FROM_EMAIL
-        sync: false
+        value: "SwiftPay <login@swiftpay.site>"

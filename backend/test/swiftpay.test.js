@@ -16,12 +16,15 @@ const tokenPrincipal = {
 let server;
 let baseUrl;
 let requests;
+let failOtpRequest = false;
 
 before(async () => {
   requests = [];
   const app = createApp({
     config,
-    requestOtp: async () => {},
+    requestOtp: async () => {
+      if (failOtpRequest) throw new Error("OTP email provider rejected request (HTTP 403)");
+    },
     verifyOtp: async () => null,
     verifyAccessToken: async (token) => {
       if (!new Set(["valid-test-token", "read-only-test-token"]).has(token)) throw new Error("invalid token");
@@ -52,6 +55,21 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+});
+
+test("failed OTP delivery returns a retryable error without exposing provider details", async () => {
+  failOtpRequest = true;
+  try {
+    const response = await fetch(`${baseUrl}/v1/auth/request-otp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "merchant@example.com" })
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "Sign-in email could not be sent; try again later" });
+  } finally {
+    failOtpRequest = false;
+  }
 });
 
 test("order signature uses sorted x-fields and two-decimal amount", () => {

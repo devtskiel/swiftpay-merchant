@@ -35,6 +35,34 @@
             user-select: none;
         }
 
+        .action-notice {
+            position: fixed;
+            left: 16px;
+            right: 16px;
+            bottom: max(20px, env(safe-area-inset-bottom));
+            z-index: 200;
+            padding: 14px 18px;
+            border-radius: 14px;
+            background: var(--fp-navy);
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateY(12px);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .action-notice.is-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .action-notice.is-error {
+            background: #991B1B;
+        }
+
         .page {
             position: fixed;
             top: 0;
@@ -424,6 +452,7 @@
     </style>
 </head>
 <body>
+    <div id="action-notice" class="action-notice" role="status" aria-live="polite"></div>
 
     <!-- Main Dashboard Hero -->
     <div class="hero">
@@ -614,9 +643,23 @@
     </div>
 
     <script>
+        let noticeTimer;
+        function showNotice(message, isError = false) {
+            const notice = document.getElementById('action-notice');
+            notice.textContent = message;
+            notice.classList.toggle('is-error', isError);
+            notice.classList.add('is-visible');
+            clearTimeout(noticeTimer);
+            noticeTimer = setTimeout(() => notice.classList.remove('is-visible'), 5000);
+        }
         function post(action, data = null) {
             const sdk = window.SwiftPaySDK || window.MayaSDK;
-            if (sdk) sdk.postMessage(JSON.stringify({ action, data }));
+            if (!sdk) {
+                showNotice("Payment service is unavailable. Close and reopen this screen, then try again.", true);
+                return false;
+            }
+            sdk.postMessage(JSON.stringify({ action, data }));
+            return true;
         }
         function openPage(id) {
             const p = document.getElementById(id); if (p) p.classList.add('active');
@@ -660,12 +703,17 @@
         }
         window.onSwiftPayResponse = window.onMayaResponse = function(json) {
             const res = JSON.parse(json);
+            if (res.status === 'error') {
+                showNotice(res.message || "The request failed. Please try again.", true);
+                return;
+            }
             if (typeof res.data === 'number') { document.getElementById('balance-display').innerText = "₱ " + res.data.toLocaleString(undefined, {minimumFractionDigits: 2}); return; }
             if (res.data && res.data.managedByServer) {
                 const status = res.data.hasApiKey === "true" ? "Merchant session active" : "Sign in required";
                 document.getElementById('payment-service-status').innerText = status;
                 document.getElementById('payment-service-detail-status').innerText = status;
             }
+            if (res.data && typeof res.data.message === 'string') showNotice(res.data.message);
         };
         setTimeout(() => { getBalance(); post("get_settings"); }, 800);
     </script>

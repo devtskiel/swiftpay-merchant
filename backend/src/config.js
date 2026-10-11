@@ -32,9 +32,12 @@ export function loadConfig(env = process.env) {
   if (Buffer.byteLength(sessionSigningKey, "utf8") < 32) {
     throw new Error("SESSION_SIGNING_KEY must contain at least 32 bytes");
   }
-  const allowedEmails = env.AUTH_ALLOWED_EMAILS.split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
-  if (allowedEmails.length === 0 || allowedEmails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
-    throw new Error("AUTH_ALLOWED_EMAILS must contain one or more comma-separated email addresses");
+  const allowedEmails = [
+    ...env.AUTH_ALLOWED_EMAILS.split(","),
+    ...(env.AUTH_ADDITIONAL_ALLOWED_EMAILS || "").split(",")
+  ].map((email) => email.trim().toLowerCase()).filter(Boolean);
+  if (allowedEmails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+    throw new Error("AUTH_ALLOWED_EMAILS and AUTH_ADDITIONAL_ALLOWED_EMAILS must contain valid comma-separated email addresses");
   }
 
   return {
@@ -43,7 +46,7 @@ export function loadConfig(env = process.env) {
     swiftPayAccessKey: accessKey,
     swiftPaySecretKey: secretKey,
     sessionSigningKey,
-    allowedEmails,
+    allowedEmails: [...new Set(allowedEmails)],
     resendApiKey: env.RESEND_API_KEY,
     otpFromEmail: env.OTP_FROM_EMAIL
   };

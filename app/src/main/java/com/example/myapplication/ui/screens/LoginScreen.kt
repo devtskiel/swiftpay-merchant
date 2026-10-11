@@ -39,6 +39,7 @@ import com.example.myapplication.data.BackendAuthService
 import com.example.myapplication.data.SettingsManager
 import com.example.myapplication.ui.components.FastPayLogo
 import com.example.myapplication.ui.theme.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -67,16 +68,19 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private var timerJob: Job? = null
 
     fun navigateToCredentials() {
+        isLoading = false
         state = LoginState.Credentials
         errorMessage = null
     }
 
     fun navigateToLanding() {
+        isLoading = false
         state = LoginState.Landing
         errorMessage = null
     }
 
     fun onLoginClick() {
+        if (isLoading) return
         val email = username.trim().lowercase()
         if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
             errorMessage = "Enter a valid merchant email address"
@@ -94,6 +98,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 }.onFailure { error ->
                     errorMessage = error.message ?: "Unable to send sign-in code"
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Network error"
             } finally {
@@ -103,6 +109,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onVerifyOtpClick(onSuccess: () -> Unit) {
+        if (isLoading) return
         val currentOtp = (state as? LoginState.Otp)?.email ?: username
         if (otpCode.length < 6) {
             errorMessage = "Please enter a valid 6-digit code"
@@ -120,6 +127,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 }.onFailure { error ->
                     errorMessage = error.message ?: "Invalid or expired verification code"
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Network error"
             } finally {
@@ -129,19 +138,26 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onResendOtpClick() {
-        if (resendTimer > 0) return
+        if (isLoading || resendTimer > 0) return
 
         val email = (state as? LoginState.Otp)?.email ?: username
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
-            authService.requestOtp(email).onSuccess {
-                Toast.makeText(getApplication(), "New sign-in code sent", Toast.LENGTH_SHORT).show()
-                startResendTimer()
-            }.onFailure { error ->
-                errorMessage = error.message ?: "Unable to resend sign-in code"
+            try {
+                authService.requestOtp(email).onSuccess {
+                    Toast.makeText(getApplication(), "New sign-in code sent", Toast.LENGTH_SHORT).show()
+                    startResendTimer()
+                }.onFailure { error ->
+                    errorMessage = error.message ?: "Unable to resend sign-in code"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "Network error"
+            } finally {
+                isLoading = false
             }
-            isLoading = false
         }
     }
 

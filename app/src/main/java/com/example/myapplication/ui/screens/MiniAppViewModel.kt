@@ -18,6 +18,7 @@ import com.example.myapplication.data.createSwiftPayService
 import com.example.myapplication.data.mergeTransactions
 import com.example.myapplication.data.repository.PaymentRepository
 import com.example.myapplication.data.repository.TransactionRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -93,11 +94,33 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
         return settingsManager.createSwiftPayService()
     }
 
+    private fun launchProcessingAction(message: String, action: suspend () -> Unit) {
+        viewModelScope.launch {
+            uiState = MiniAppUiState.Processing(message)
+            try {
+                action()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val errorMessage = error.message ?: "The request failed. Please try again."
+                Log.e("MiniAppViewModel", message, error)
+                bridge?.sendError(errorMessage)
+                uiState = MiniAppUiState.Error(errorMessage)
+            }
+        }
+    }
+
     fun refreshBalance() {
         viewModelScope.launch {
-            getService().getWalletBalance()
-                .onSuccess { walletBalance = it }
-                .onFailure { error -> Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error) }
+            try {
+                getService().getWalletBalance()
+                    .onSuccess { walletBalance = it }
+                    .onFailure { error -> Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e("MiniAppViewModel", "Failed to refresh wallet balance", error)
+            }
         }
     }
 
@@ -115,69 +138,78 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun onBalanceRequest() {
         viewModelScope.launch {
-            getService().getWalletBalance()
-                .onSuccess { bridge?.sendResponse(it) }
-                .onFailure { error -> bridge?.sendError(error.message ?: "Wallet balance is unavailable") }
+            try {
+                getService().getWalletBalance()
+                    .onSuccess { bridge?.sendResponse(it) }
+                    .onFailure { error -> bridge?.sendError(error.message ?: "Wallet balance is unavailable") }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                bridge?.sendError(error.message ?: "Wallet balance is unavailable")
+            }
         }
     }
 
     fun onTransactionsRequest() {
         viewModelScope.launch {
-            val result = getService().getInternalTransactions()
-            val localTransactions = repository.getAllTransactions().first()
-            result.onSuccess { transactions ->
-                bridge?.sendResponse(mergeTransactions(localTransactions, transactions))
-            }.onFailure { error ->
-                if (localTransactions.isNotEmpty()) {
-                    bridge?.sendResponse(localTransactions)
-                } else {
-                    val errorMessage = error.message ?: "Failed to fetch transactions"
-                    bridge?.sendError(errorMessage)
+            try {
+                val result = getService().getInternalTransactions()
+                val localTransactions = repository.getAllTransactions().first()
+                result.onSuccess { transactions ->
+                    bridge?.sendResponse(mergeTransactions(localTransactions, transactions))
+                }.onFailure { error ->
+                    if (localTransactions.isNotEmpty()) {
+                        bridge?.sendResponse(localTransactions)
+                    } else {
+                        bridge?.sendError(error.message ?: "Failed to fetch transactions")
+                    }
                 }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                bridge?.sendError(error.message ?: "Failed to fetch transactions")
             }
         }
     }
 
     fun onPaymentChannelsRequest() {
         viewModelScope.launch {
-            val channels = getService().getPaymentChannels()
-            bridge?.sendResponse(channels)
+            try {
+                bridge?.sendResponse(getService().getPaymentChannels())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                bridge?.sendError(error.message ?: "Payment channels are unavailable")
+            }
         }
     }
 
     fun onPaymentLinkRequest(data: PaymentData) {
-        viewModelScope.launch {
-            try {
-                uiState = MiniAppUiState.Processing("Generating payment link...")
+        launchProcessingAction("Generating payment link...") {
+            val result = getService().createPaymentLink(
+                amount = if (data.amount > 0) data.amount else 0.0,
+                description = data.description
+            )
 
-                val result = getService().createPaymentLink(
-                    amount = if (data.amount > 0) data.amount else 0.0,
-                    description = data.description
-                )
+            result.onSuccess { response ->
+                val url = response.paymentLinkUrl
+                if (url != null) {
+                    uiState = MiniAppUiState.PaymentLinkReady(url)
 
-                result.onSuccess { response ->
-                    val url = response.paymentLinkUrl
-                    if (url != null) {
-                        uiState = MiniAppUiState.PaymentLinkReady(url)
+                    bridge?.sendResponse(mapOf(
+                        "paymentLinkUrl" to url,
+                        "linkId" to (response.id ?: ""),
+                        "description" to (response.description ?: data.description),
+                        "hasFixedAmount" to (data.amount > 0),
+                        "amount" to data.amount
+                    ))
 
-                        bridge?.sendResponse(mapOf(
-                            "paymentLinkUrl" to url,
-                            "linkId" to (response.id ?: ""),
-                            "description" to (response.description ?: data.description),
-                            "hasFixedAmount" to (data.amount > 0),
-                            "amount" to data.amount
-                        ))
-
-                        Log.i("MiniAppViewModel", "Payment link generated successfully: $url")
-                    } else {
-                        val errorMsg = "Payment link URL was not provided by SwiftPay server"
-                        handlePaymentLinkError(errorMsg)
-                    }
-                }.onFailure { error ->
-                    handlePaymentLinkError(error.message ?: "Failed to generate payment link")
+                    Log.i("MiniAppViewModel", "Payment link generated successfully: $url")
+                } else {
+                    handlePaymentLinkError("Payment link URL was not provided by SwiftPay server")
                 }
-            } catch (e: Exception) {
-                handlePaymentLinkError("Unexpected error: ${e.message}")
+            }.onFailure { error ->
+                handlePaymentLinkError(error.message ?: "Failed to generate payment link")
             }
         }
     }
@@ -204,8 +236,7 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onGenerateDynamicQr(amount: Double) {
-        viewModelScope.launch {
-            uiState = MiniAppUiState.Processing("Generating dynamic QR Ph code...")
+        launchProcessingAction("Generating dynamic QR Ph code...") {
             val result = getService().createDynamicQr(amount)
 
             result.onSuccess { response ->
@@ -236,8 +267,7 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
             uiState = MiniAppUiState.Error("Please enter a valid transfer amount.")
             return
         }
-        viewModelScope.launch {
-            uiState = MiniAppUiState.Processing("Processing SwiftPay transfer...")
+        launchProcessingAction("Processing SwiftPay transfer...") {
             val result = getService().disburse(amount, bankCode, accountNumber, recipientName)
             result.onSuccess { response ->
                 val status = normalizePaymentStatus(response.status)
@@ -327,8 +357,7 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onSaveSettings(data: Map<String, String>) {
-        viewModelScope.launch {
-            uiState = MiniAppUiState.Processing("Saving settings...")
+        launchProcessingAction("Saving settings...") {
             data["merchantAlias"]?.takeIf { it.isNotBlank() }?.let { settingsManager.saveMerchantAlias(it) }
 
             bridge?.sendResponse(mapOf(
@@ -341,25 +370,30 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun getSettings() {
         viewModelScope.launch {
-            val hasBackendSession = !settingsManager.backendAccessToken.first().isNullOrBlank()
-            val alias = settingsManager.merchantAlias.first() ?: ""
-            bridge?.sendResponse(
-                mapOf(
-                    "hasApiKey" to hasBackendSession.toString(),
-                    "managedByServer" to "true",
-                    "apiKey" to "",
-                    "baseUrl" to "",
-                    "merchantId" to "",
-                    "terminalId" to "",
-                    "merchantAlias" to alias
+            try {
+                val hasBackendSession = !settingsManager.backendAccessToken.first().isNullOrBlank()
+                val alias = settingsManager.merchantAlias.first() ?: ""
+                bridge?.sendResponse(
+                    mapOf(
+                        "hasApiKey" to hasBackendSession.toString(),
+                        "managedByServer" to "true",
+                        "apiKey" to "",
+                        "baseUrl" to "",
+                        "merchantId" to "",
+                        "terminalId" to "",
+                        "merchantAlias" to alias
+                    )
                 )
-            )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                bridge?.sendError(error.message ?: "Unable to load payment service settings")
+            }
         }
     }
 
     fun approvePayment(data: PaymentData) {
-        viewModelScope.launch {
-            uiState = MiniAppUiState.Processing("Creating SwiftPay checkout...")
+        launchProcessingAction("Creating SwiftPay checkout...") {
             val result = getService().createCheckout(data)
 
             result.onSuccess { response ->
