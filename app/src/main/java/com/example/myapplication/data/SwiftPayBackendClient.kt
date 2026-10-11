@@ -6,6 +6,7 @@ import com.example.myapplication.data.api.BackendDisbursementRecord
 import com.example.myapplication.data.api.BackendDisbursementRequest
 import com.example.myapplication.data.api.BackendOrderRequest
 import com.example.myapplication.data.api.BackendPaymentLinkRequest
+import com.example.myapplication.data.api.BackendQrPaymentRequest
 import com.example.myapplication.data.api.BackendRecipientInformation
 import com.example.myapplication.data.api.CardDetails
 import com.example.myapplication.data.api.InternalTransaction
@@ -167,9 +168,34 @@ class SwiftPayService(
         }
     }
 
-    suspend fun createDynamicQr(amount: Double): Result<SwiftPayQrResponse> = Result.failure(
-        UnsupportedOperationException("Dynamic QR creation is not available in the published SwiftPay API")
-    )
+    suspend fun createDynamicQr(amount: Double): Result<SwiftPayQrResponse> {
+        if (!hasApiKey) return missingSession()
+        if (amount <= 0.0) return Result.failure(IllegalArgumentException("Enter a valid QR Ph amount"))
+        return try {
+            val response = api.createQrPayment(
+                BackendQrPaymentRequest(
+                    amount = amount,
+                    referenceNo = "QR-${UUID.randomUUID()}"
+                )
+            )
+            if (!response.isSuccessful) return failure(response)
+            val body = response.body() ?: return Result.failure(IllegalStateException("Empty QR Ph response"))
+            Result.success(
+                SwiftPayQrResponse(
+                    id = body.paymentId,
+                    paymentId = body.paymentId,
+                    qrCode = body.qrCode,
+                    status = body.status,
+                    amount = body.amount,
+                    currency = body.currency,
+                    qrCodeBody = body.qrCode,
+                    qrImageBase64 = body.qrImageBase64
+                )
+            )
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
 
     suspend fun getWalletBalance(): Result<Double> {
         if (!hasApiKey) return missingSession()

@@ -2,6 +2,7 @@ package com.example.myapplication.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,10 +28,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
+import android.graphics.BitmapFactory
+import android.util.Base64
 import com.example.myapplication.ui.theme.FastPayBlue
 import com.example.myapplication.ui.theme.FastPayNavy
-import java.net.URLEncoder
 
 @Composable
 fun SwiftPayBaseDialog(
@@ -244,25 +246,38 @@ fun SwiftPayCvvDialog(
 }
 
 @Composable
-fun SwiftPayQrDialog(qrData: String, amount: Double, onDismiss: () -> Unit) {
+fun SwiftPayQrDialog(qrImageBase64: String, amount: Double, onDismiss: () -> Unit) {
     SwiftPayBaseDialog(
         onDismissRequest = onDismiss,
         title = "SwiftPay QR Ph",
         description = "Accept payments from any Philippine bank or e-wallet app",
         content = {
-            val qrImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${URLEncoder.encode(qrData, "UTF-8")}"
+            val qrImage = remember(qrImageBase64) {
+                runCatching {
+                    val bytes = Base64.decode(qrImageBase64, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                }.getOrNull()
+            }
 
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, FastPayNavy.copy(alpha = 0.1f)),
                 modifier = Modifier.size(200.dp),
             ) {
-                AsyncImage(
-                    model = qrImageUrl,
-                    contentDescription = "QR Ph Code for ₱${"%.2f".format(amount)}",
-                    modifier = Modifier.fillMaxSize().background(Color.White).padding(12.dp),
-                    contentScale = ContentScale.Fit
-                )
+                if (qrImage != null) {
+                    Image(
+                        bitmap = qrImage,
+                        contentDescription = "QR Ph Code for ₱${"%.2f".format(amount)}",
+                        modifier = Modifier.fillMaxSize().background(Color.White).padding(12.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text(
+                        text = "QR image unavailable",
+                        modifier = Modifier.fillMaxSize().background(Color.White).padding(12.dp),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
 
             Spacer(Modifier.height(24.dp))
@@ -871,7 +886,8 @@ fun MayaCvvDialog(amount: Double, cardLabel: String, last4: String, onConfirm: (
 }
 
 @Composable
-fun MayaQrDialog(qrData: String, amount: Double, onDismiss: () -> Unit) = SwiftPayQrDialog(qrData, amount, onDismiss)
+fun MayaQrDialog(qrImageBase64: String, amount: Double, onDismiss: () -> Unit) =
+    SwiftPayQrDialog(qrImageBase64, amount, onDismiss)
 
 @Composable
 fun MayaNfcTapDialog(

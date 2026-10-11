@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { after, before, test } from "node:test";
 import { createApp } from "../src/app.js";
-import { canonicalOrderMessage, buildOrderPayload } from "../src/swiftpay.js";
+import { canonicalOrderMessage, buildOrderPayload, buildQrPayload, verifySwiftPaySignature } from "../src/swiftpay.js";
 
 const config = {
   swiftPayBaseUrl: new URL("https://provider.example/api/"),
@@ -36,8 +36,25 @@ before(async () => {
     },
     fetchImpl: async (url, options) => {
       requests.push({ url: url.toString(), options });
+      if (url.pathname.endsWith("/payments/qrph/image")) {
+        return new Response(Buffer.from([137, 80, 78, 71]), {
+          status: 200,
+          headers: { "content-type": "image/png" }
+        });
+      }
       const response = url.pathname.endsWith("/payments/links")
         ? { status: 200, body: { code: "PL-1", paymentUrl: "https://pay.example/link/PL-1" } }
+        : url.pathname.endsWith("/bootstrap/qrph")
+          ? {
+            status: 200,
+            body: {
+              paymentId: "5008f066-d68a-4ef2-b794-8596bac268f6",
+              paymentStatus: "PENDING",
+              referenceNo: "QR-1",
+              amount: "500.75",
+              qrCode: "000201010212"
+            }
+          }
         : url.pathname.endsWith("/payments/status")
           ? { status: 200, body: "EXECUTED" }
           : url.pathname.endsWith("/disbursements/account")
@@ -101,6 +118,43 @@ test("order signature uses sorted x-fields and two-decimal amount", () => {
   ).digest("hex");
   assert.equal(payload.signature, expected);
   assert.equal(payload.generate_customer_redirect_url, true);
+});
+
+test("QR Ph bootstrap signs amount and returns the provider PNG", async () => {
+  const response = await fetch(`${baseUrl}/v1/payments/qrph`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer valid-test-token",
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ amount: 500.75, referenceNo: "QR-1" })
+  });
+  assert.equal(response.status, 201);
+  const payment = await response.json();
+  assert.equal(payment.paymentId, "5008f066-d68a-4ef2-b794-8596bac268f6");
+  assert.equal(payment.amount, 500.75);
+  assert.equal(payment.qrCode, "000201010212");
+  assert.equal(payment.qrImageBase64, Buffer.from([137, 80, 78, 71]).toString("base64"));
+
+  const bootstrapRequest = requests.findLast(({ url }) => url.endsWith("/bootstrap/qrph?type=P2M"));
+  const payload = JSON.parse(bootstrapRequest.options.body);
+  assert.equal(payload.x_amount, 500.75);
+  assert.equal(payload.x_reference_no, "QR-1");
+  assert.equal(payload.signature, buildQrPayload({
+    amount: 500.75,
+    referenceNo: "QR-1",
+    rejectDuplicatedPayments: true
+  }, config).signature);
+  const imageRequest = requests.findLast(({ url }) => url.endsWith("/payments/qrph/image?type=P2M"));
+  assert.equal(imageRequest.options.headers["X-Swiftpay-Payment-Token"], payment.paymentId);
+  assert.equal(imageRequest.options.headers.Accept, "image/png");
+});
+
+test("QR Ph signature verification rejects altered fields and malformed signatures", () => {
+  const payload = buildQrPayload({ amount: 12.3, referenceNo: "QR-2" }, config);
+  assert.equal(verifySwiftPaySignature(payload, payload.signature, config.swiftPaySecretKey), true);
+  assert.equal(verifySwiftPaySignature({ ...payload, x_amount: 99 }, payload.signature, config.swiftPaySecretKey), false);
+  assert.equal(verifySwiftPaySignature(payload, "not-a-signature", config.swiftPaySecretKey), false);
 });
 
 test("payment order requires a verified scoped bearer token and signs upstream", async () => {

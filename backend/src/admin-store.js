@@ -36,6 +36,18 @@ export function createAdminStore(databaseUrl, pool = new Pool({ connectionString
         actor_email TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS swiftpay_webhook_events (
+        event_key TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL CHECK (event_type IN ('payment', 'disbursement')),
+        payment_id TEXT,
+        reference_no TEXT NOT NULL,
+        status TEXT NOT NULL,
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS swiftpay_webhook_events_payment_id
+        ON swiftpay_webhook_events (payment_id)
+        WHERE payment_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS unique_transfer_reference
         ON admin_audit ((details->>'referenceNo'))
         WHERE action LIKE 'transfer.%';
@@ -172,6 +184,34 @@ export function createAdminStore(databaseUrl, pool = new Pool({ connectionString
     );
   }
 
+  async function recordWebhookEvent(event) {
+    await pool.query(
+      `INSERT INTO swiftpay_webhook_events
+         (event_key, event_type, payment_id, reference_no, status, details)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (event_key) DO UPDATE
+       SET status = EXCLUDED.status, details = EXCLUDED.details, received_at = NOW()`,
+      [
+        event.eventKey,
+        event.eventType,
+        event.paymentId || null,
+        event.referenceNo,
+        event.status,
+        JSON.stringify(event.details)
+      ]
+    );
+  }
+
+  async function getPaymentWebhookStatus(paymentId) {
+    const result = await pool.query(
+      `SELECT status FROM swiftpay_webhook_events
+       WHERE event_type = 'payment' AND payment_id = $1
+       LIMIT 1`,
+      [paymentId]
+    );
+    return result.rows[0] || null;
+  }
+
   async function listAdjustments(limit) {
     const result = await pool.query(
       `SELECT id, amount, currency, reason, actor_email AS actor, created_at
@@ -202,6 +242,8 @@ export function createAdminStore(databaseUrl, pool = new Pool({ connectionString
     createAdjustment,
     createTransferIntent,
     finishTransferIntent,
+    recordWebhookEvent,
+    getPaymentWebhookStatus,
     listAdjustments,
     adjustmentTotal,
     recordAudit: (actor, action, target, details) =>

@@ -4,7 +4,14 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { z } from "zod";
 import { principalHasScope } from "./auth.js";
-import { buildOrderPayload, callSwiftPay, newReference, SwiftPayError } from "./swiftpay.js";
+import {
+  buildOrderPayload,
+  buildQrPayload,
+  callSwiftPay,
+  newReference,
+  SwiftPayError,
+  verifySwiftPaySignature
+} from "./swiftpay.js";
 
 const amountSchema = z.number().finite().min(0.01).max(1_000_000);
 const referenceSchema = z.string().trim().min(1).max(50);
@@ -17,6 +24,12 @@ const orderSchema = z.object({
   details: z.record(z.string(), z.unknown()).default({}),
   institutionCode: z.string().trim().min(1).max(16).optional(),
   merchantTag: z.string().trim().max(64).optional()
+}).strict();
+
+const qrPaymentSchema = z.object({
+  amount: amountSchema,
+  referenceNo: referenceSchema,
+  rejectDuplicatedPayments: z.boolean().default(true)
 }).strict();
 
 const paymentLinkSchema = z.object({
@@ -113,7 +126,14 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
     maxAge: "1h"
   }));
   app.use(express.json({ limit: "32kb", strict: true }));
-  app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false }));
+  app.use(rateLimit({
+    windowMs: 60_000,
+    limit: 120,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    skip: (req) => req.path === "/v1/webhooks/swiftpay"
+  }));
+  const webhookLimiter = rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: "draft-8", legacyHeaders: false });
   app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
   const authLimiter = rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
   app.post("/v1/auth/request-otp", authLimiter, asyncRoute(async (req, res) => {
@@ -135,6 +155,73 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
     if (!session) return res.status(401).json({ error: "invalid_or_expired_code" });
     res.json(session);
   }));
+
+  app.post("/v1/webhooks/swiftpay", webhookLimiter, asyncRoute(async (req, res) => {
+    const entries = Object.entries(req.query);
+    if (
+      entries.length === 0 ||
+      entries.length > 32 ||
+      entries.some(([key, value]) => !/^[a-zA-Z0-9_]{1,64}$/.test(key) || typeof value !== "string") ||
+      Buffer.byteLength(JSON.stringify(req.query), "utf8") > 8192 ||
+      (req.body && Object.keys(req.body).length > 0)
+    ) {
+      return res.status(400).json({ error: "invalid_webhook_payload" });
+    }
+
+    const fields = Object.fromEntries(entries);
+    if (
+      (fields.x_access_key !== undefined && fields.x_access_key !== config.swiftPayAccessKey) ||
+      !verifySwiftPaySignature(fields, fields.signature, config.swiftPaySecretKey)
+    ) {
+      return res.status(401).json({ error: "invalid_webhook_signature" });
+    }
+    if (!userStore?.recordWebhookEvent) {
+      return res.status(503).json({ error: "webhook_storage_unavailable" });
+    }
+
+    const paymentEvent = z.object({
+      x_payment_id: z.string().uuid(),
+      x_payment_status: z.enum(["EXECUTED", "REJECTED", "CANCELED", "EXPIRED"]),
+      x_reference_no: referenceSchema
+    }).safeParse(fields);
+    if (paymentEvent.success) {
+      const details = {
+        ...(fields.institution_reference_no ? { institutionReferenceNo: fields.institution_reference_no } : {}),
+        ...(fields.channel_reference_no ? { channelReferenceNo: fields.channel_reference_no } : {})
+      };
+      await userStore.recordWebhookEvent({
+        eventKey: `payment:${paymentEvent.data.x_payment_id}`,
+        eventType: "payment",
+        paymentId: paymentEvent.data.x_payment_id,
+        referenceNo: paymentEvent.data.x_reference_no,
+        status: paymentEvent.data.x_payment_status,
+        details
+      });
+      return res.status(200).json({ status: "accepted" });
+    }
+
+    const disbursementEvent = z.object({
+      x_disbursement_status: z.enum(["EXECUTED", "REJECTED", "ERROR"]),
+      x_merchant_reference_no: referenceSchema
+    }).safeParse(fields);
+    if (!disbursementEvent.success) {
+      return res.status(400).json({ error: "invalid_webhook_payload" });
+    }
+    const details = {
+      ...(fields.x_channel_reference_no ? { channelReferenceNo: fields.x_channel_reference_no } : {}),
+      ...(fields.x_error_message ? { errorMessage: fields.x_error_message.slice(0, 500) } : {}),
+      ...(fields.x_settlement_time ? { settlementTime: fields.x_settlement_time.slice(0, 64) } : {})
+    };
+    await userStore.recordWebhookEvent({
+      eventKey: `disbursement:${disbursementEvent.data.x_merchant_reference_no}`,
+      eventType: "disbursement",
+      referenceNo: disbursementEvent.data.x_merchant_reference_no,
+      status: disbursementEvent.data.x_disbursement_status,
+      details
+    });
+    res.status(200).json({ status: "accepted" });
+  }));
+
   app.use("/v1", createAuthMiddleware(verifyAccessToken, userStore));
 
   app.get("/v1/admin/me", requireSuperAdmin, (req, res) => {
@@ -199,8 +286,46 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
 
   app.get("/v1/payments/:paymentToken/status", requireScope("swiftpay:payments:read"), asyncRoute(async (req, res) => {
     const token = z.string().min(1).max(128).parse(req.params.paymentToken);
+    const webhookStatus = await userStore?.getPaymentWebhookStatus?.(token);
+    if (webhookStatus) {
+      return res.json({ paymentId: token, status: webhookStatus.status, source: "webhook" });
+    }
     const result = await requestProvider("payments/status", { paymentToken: token });
     res.status(result.status).json({ paymentId: token, status: result.data });
+  }));
+
+  app.post("/v1/payments/qrph", requireScope("swiftpay:payments:write"), asyncRoute(async (req, res) => {
+    const input = parse(qrPaymentSchema, req.body);
+    const bootstrap = await requestProvider("bootstrap/qrph?type=P2M", {
+      method: "POST",
+      body: buildQrPayload(input, config)
+    });
+    const paymentId = z.string().uuid().safeParse(bootstrap.data?.paymentId);
+    const qrCode = z.string().min(1).max(4096).safeParse(bootstrap.data?.qrCode);
+    if (!paymentId.success || !qrCode.success) {
+      throw new SwiftPayError(502, "SwiftPay returned an invalid QR Ph payment");
+    }
+
+    const image = await requestProvider("payments/qrph/image?type=P2M", {
+      paymentToken: paymentId.data,
+      responseType: "bytes"
+    });
+    const providerAmount = typeof bootstrap.data?.amount === "string" && bootstrap.data.amount.trim() !== ""
+      ? Number(bootstrap.data.amount)
+      : bootstrap.data?.amount;
+    const amount = z.number().finite().positive().safeParse(providerAmount);
+    if (!amount.success) {
+      throw new SwiftPayError(502, "SwiftPay returned an invalid QR Ph amount");
+    }
+    res.status(201).json({
+      paymentId: paymentId.data,
+      referenceNo: input.referenceNo,
+      status: bootstrap.data?.paymentStatus || "PENDING",
+      amount: amount.data,
+      currency: "PHP",
+      qrCode: qrCode.data,
+      qrImageBase64: image.data.toString("base64")
+    });
   }));
 
   app.get("/v1/wallet/balance", requireScope("swiftpay:disbursements:read"), asyncRoute(async (_req, res) => {

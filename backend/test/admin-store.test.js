@@ -37,6 +37,21 @@ test("admin store persists merchant status, internal adjustments, and atomic aud
       "merchant.suspended",
       "transfer.accepted"
     ].sort());
+
+    const webhook = {
+      eventKey: "payment:5008f066-d68a-4ef2-b794-8596bac268f6",
+      eventType: "payment",
+      paymentId: "5008f066-d68a-4ef2-b794-8596bac268f6",
+      referenceNo: "ORDER-1",
+      status: "EXECUTED",
+      details: { institutionReferenceNo: "INST-1" }
+    };
+    await store.recordWebhookEvent(webhook);
+    await store.recordWebhookEvent(webhook);
+    assert.deepEqual(
+      await store.getPaymentWebhookStatus(webhook.paymentId),
+      { status: "EXECUTED" }
+    );
   } finally {
     await store.close();
   }

@@ -31,7 +31,7 @@ sealed interface MiniAppUiState {
     data class PaymentConsent(val data: PaymentData) : MiniAppUiState
     data class PaymentRedirect(val url: String, val data: PaymentData) : MiniAppUiState
     data class PaymentLinkReady(val url: String) : MiniAppUiState
-    data class DynamicQrReady(val qrData: String, val amount: Double) : MiniAppUiState
+    data class DynamicQrReady(val qrImageBase64: String, val amount: Double) : MiniAppUiState
 
     data class WaitingForNFC(
         val amount: Double,
@@ -251,17 +251,19 @@ class MiniAppViewModel(application: Application) : AndroidViewModel(application)
             val result = getService().createDynamicQr(amount)
 
             result.onSuccess { response ->
-                val qr = response.qrCode ?: response.qrCodeUrl
-                if (qr != null) {
+                val qrCode = response.qrCodeBody ?: response.qrCode
+                val qrImageBase64 = response.qrImageBase64
+                val paymentId = response.paymentId ?: response.id
+                if (!qrCode.isNullOrBlank() && !qrImageBase64.isNullOrBlank() && !paymentId.isNullOrBlank()) {
                     recordLocalTransaction(
-                        id = response.paymentId ?: "QR${System.currentTimeMillis()}",
+                        id = paymentId,
                         amount = amount,
                         status = "PENDING"
                     )
-                    uiState = MiniAppUiState.DynamicQrReady(qr, amount)
-                    bridge?.sendResponse(mapOf("qrCodeBody" to qr))
+                    uiState = MiniAppUiState.DynamicQrReady(qrImageBase64, amount)
+                    bridge?.sendResponse(mapOf("qrCodeBody" to qrCode))
                 } else {
-                    val errorMsg = "QR code data was not provided by SwiftPay server"
+                    val errorMsg = "SwiftPay returned an incomplete QR Ph payment"
                     bridge?.sendError(errorMsg)
                     uiState = MiniAppUiState.Error(errorMsg)
                 }

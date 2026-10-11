@@ -89,7 +89,7 @@ fun MiniAppScreen(
                     }
                     is MiniAppUiState.DynamicQrReady -> {
                         SwiftPayQrDialog(
-                            qrData = state.qrData,
+                            qrImageBase64 = state.qrImageBase64,
                             amount = state.amount,
                             onDismiss = { viewModel.dismissConsent() }
                         )

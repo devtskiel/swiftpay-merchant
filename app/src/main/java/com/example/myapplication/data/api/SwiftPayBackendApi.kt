@@ -17,6 +17,24 @@ data class BackendOrderRequest(
 )
 
 @Serializable
+data class BackendQrPaymentRequest(
+    val amount: Double,
+    val referenceNo: String,
+    val rejectDuplicatedPayments: Boolean = true
+)
+
+@Serializable
+data class BackendQrPaymentResponse(
+    val paymentId: String,
+    val referenceNo: String,
+    val status: String,
+    val amount: Double,
+    val currency: String,
+    val qrCode: String,
+    val qrImageBase64: String
+)
+
+@Serializable
 data class BackendOrderResponse(
     val paymentId: String,
     val referenceNo: String,
@@ -99,6 +117,9 @@ interface SwiftPayBackendApi {
 
     @POST("v1/payments/orders")
     suspend fun createOrder(@Body request: BackendOrderRequest): Response<BackendOrderResponse>
+
+    @POST("v1/payments/qrph")
+    suspend fun createQrPayment(@Body request: BackendQrPaymentRequest): Response<BackendQrPaymentResponse>
 
     @GET("v1/payments/{paymentToken}/status")
     suspend fun getPaymentStatus(@Path("paymentToken") paymentToken: String): Response<BackendStatusResponse>

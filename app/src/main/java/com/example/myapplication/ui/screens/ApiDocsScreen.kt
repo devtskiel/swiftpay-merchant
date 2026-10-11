@@ -75,7 +75,7 @@ fun ApiDocsScreen() {
             DocSection(
                 title = "3. Hosted checkout",
                 icon = Icons.Rounded.Description,
-                content = "Create a PHP order with a unique reference. SwiftPay returns a hosted checkout URL; the backend signs the request.",
+                content = "Create a PHP order with a unique reference. SwiftPay hosts payment methods including card entry and 3-D Secure; card details stay on SwiftPay's page.",
                 code = "POST /v1/payments/orders\n{\n  \"amount\": 100.00,\n  \"referenceNo\": \"INV-1001\",\n  \"currency\": \"PHP\",\n  \"details\": {}\n}",
                 cardColor = cardColor,
                 textColor = textColor
@@ -100,10 +100,10 @@ fun ApiDocsScreen() {
             )
 
             DocSection(
-                title = "6. Unsupported endpoints",
+                title = "6. QR Ph and verified callbacks",
                 icon = Icons.Rounded.Security,
-                content = "The balance endpoint reports available funds in the disbursement ledger; it is not a combined card or settlement balance. Dynamic QR creation is not documented by the published API.",
-                code = "GET /v1/wallet/balance\nDynamic QR creation: unavailable",
+                content = "Create QR Ph payments through the signed backend integration. Configure the SwiftPay callback URL in the Merchant Portal; verified terminal callbacks are stored and take precedence over status polling.",
+                code = "POST /v1/payments/qrph\nPOST /v1/webhooks/swiftpay\nGET /v1/payments/{paymentToken}/status",
                 cardColor = cardColor,
                 textColor = textColor
             )

@@ -1,6 +1,6 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
-export function canonicalOrderMessage(fields) {
+export function canonicalSignedMessage(fields) {
   return Object.entries(fields)
     .filter(([key, value]) => key.startsWith("x_") && value !== null && value !== undefined)
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
@@ -8,10 +8,19 @@ export function canonicalOrderMessage(fields) {
     .join("");
 }
 
+export const canonicalOrderMessage = canonicalSignedMessage;
+
 export function signOrder(fields, secretKey) {
   return createHmac("sha256", Buffer.from(secretKey, "utf8"))
-    .update(canonicalOrderMessage(fields), "utf8")
+    .update(canonicalSignedMessage(fields), "utf8")
     .digest("hex");
+}
+
+export function verifySwiftPaySignature(fields, signature, secretKey) {
+  if (typeof signature !== "string" || !/^[\da-f]{64}$/i.test(signature)) return false;
+  const submitted = Buffer.from(signature, "hex");
+  const expected = Buffer.from(signOrder(fields, secretKey), "hex");
+  return submitted.length === expected.length && timingSafeEqual(submitted, expected);
 }
 
 export function buildOrderPayload(input, config, paymentId = randomUUID()) {
@@ -32,6 +41,20 @@ export function buildOrderPayload(input, config, paymentId = randomUUID()) {
   };
 }
 
+export function buildQrPayload(input, config) {
+  const fields = {
+    x_access_key: config.swiftPayAccessKey,
+    x_amount: Number(input.amount.toFixed(2)),
+    x_currency: "PHP",
+    x_reference_no: input.referenceNo
+  };
+  return {
+    ...fields,
+    signature: signOrder(fields, config.swiftPaySecretKey),
+    ...(input.rejectDuplicatedPayments ? { reject_qrph_duplicated_payments: true } : {})
+  };
+}
+
 export class SwiftPayError extends Error {
   constructor(status, message) {
     super(message);
@@ -40,7 +63,7 @@ export class SwiftPayError extends Error {
 }
 
 export async function callSwiftPay(config, fetchImpl, path, options = {}) {
-  const headers = { Accept: "application/json" };
+  const headers = { Accept: options.responseType === "bytes" ? "image/png" : "application/json" };
   if (options.auth === "basic") {
     const credentials = Buffer.from(`${config.swiftPayAccessKey}:${config.swiftPaySecretKey}`).toString("base64");
     headers.Authorization = `Basic ${credentials}`;
@@ -62,6 +85,30 @@ export async function callSwiftPay(config, fetchImpl, path, options = {}) {
     });
   } catch {
     throw new SwiftPayError(502, "SwiftPay is temporarily unavailable");
+  }
+
+  if (options.responseType === "bytes") {
+    if (!response.ok) {
+      const responseText = await response.text();
+      let data = null;
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        throw new SwiftPayError(502, "SwiftPay returned an invalid response");
+      }
+      const code = data?.errorCode || data?.code;
+      const message = code ? `SwiftPay request failed (${code})` : "SwiftPay request failed";
+      throw new SwiftPayError(response.status >= 500 ? 502 : response.status, message);
+    }
+    const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (contentType !== "image/png") {
+      throw new SwiftPayError(502, "SwiftPay did not return a PNG image");
+    }
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length === 0 || data.length > 1_048_576) {
+      throw new SwiftPayError(502, "SwiftPay returned an invalid QR image");
+    }
+    return { status: response.status, data, contentType };
   }
 
   const responseText = await response.text();
