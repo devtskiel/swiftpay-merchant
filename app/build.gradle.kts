@@ -27,7 +27,7 @@ plugins {
 
 android {
     namespace = "com.example.myapplication"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.swiftpay.site"
@@ -38,7 +38,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "PAYMENT_BACKEND_URL", "\"${optionalProperty("PAYMENT_BACKEND_URL")}\"")
+        buildConfigField("String", "PAYMENT_BACKEND_URL", "\"${PAYMENT_BACKEND_URL_PROP}\"")
     }
 
     signingConfigs {
@@ -84,7 +84,6 @@ dependencies {
     implementation(libs.androidx.compose.adaptive.layout)
     implementation(libs.androidx.compose.adaptive.navigation)
     implementation(libs.androidx.compose.adaptive.navigation.suite)
-    implementation(libs.androidx.compose.adaptive.navigation3)
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.material3)
