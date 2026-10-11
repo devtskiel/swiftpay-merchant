@@ -31,9 +31,19 @@ export function createOtpAuth(config, { sendEmail, now = Date.now, codeGenerator
 
     const code = codeGenerator();
     const codeHash = createHmac("sha256", key).update(`${email}:${code}`).digest();
-    challenges.set(email, { codeHash, expiresAt: now() + 10 * 60_000, attempts: 0 });
-    lastSentAt.set(email, now());
-    await sendEmail(email, code);
+    const sentAt = now();
+    const challenge = { codeHash, expiresAt: sentAt + 10 * 60_000, attempts: 0 };
+    challenges.set(email, challenge);
+    lastSentAt.set(email, sentAt);
+    try {
+      await sendEmail(email, code);
+    } catch (error) {
+      if (challenges.get(email) === challenge) {
+        challenges.delete(email);
+        lastSentAt.delete(email);
+      }
+      throw error;
+    }
   }
 
   async function verifyOtp(emailValue, code) {
@@ -81,7 +91,20 @@ export async function sendOtpEmail(config, email, code, fetchImpl = fetch) {
     }),
     signal: AbortSignal.timeout(10000)
   });
-  if (!response.ok) throw new Error("OTP email could not be delivered");
+  if (!response.ok) {
+    const responseBody = await response.text();
+    const providerError = (() => {
+      try {
+        return JSON.parse(responseBody);
+      } catch {
+        return null;
+      }
+    })();
+    const providerCode = [providerError?.name, providerError?.code]
+      .find((value) => typeof value === "string" && /^[a-zA-Z0-9_.-]{1,64}$/.test(value));
+    const codeDetail = providerCode ? `, ${providerCode}` : "";
+    throw new Error(`OTP email provider rejected request (HTTP ${response.status}${codeDetail})`);
+  }
 }
 
 export function principalHasScope(principal, requiredScope) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createJwtVerifier, createOtpAuth } from "../src/auth.js";
+import { createJwtVerifier, createOtpAuth, sendOtpEmail } from "../src/auth.js";
 
 test("OTP is allowlisted, one-time, and issues a scoped verifiable session", async () => {
   let now = 1_000_000;
@@ -52,4 +52,48 @@ test("expired OTPs cannot create sessions", async () => {
   await auth.requestOtp("merchant@example.com");
   now += 10 * 60_000;
   assert.equal(await auth.verifyOtp("merchant@example.com", "123456"), null);
+});
+
+test("failed OTP delivery clears the challenge and allows an immediate retry", async () => {
+  let shouldFail = true;
+  const deliveredCodes = [];
+  const auth = createOtpAuth({
+    allowedEmails: ["merchant@example.com"],
+    sessionSigningKey: "session-signing-key-that-is-at-least-32-bytes"
+  }, {
+    now: () => 1_000_000,
+    codeGenerator: () => "204681",
+    sendEmail: async (_email, code) => {
+      if (shouldFail) throw new Error("email provider unavailable");
+      deliveredCodes.push(code);
+    }
+  });
+
+  await assert.rejects(auth.requestOtp("merchant@example.com"), /email provider unavailable/);
+  assert.equal(await auth.verifyOtp("merchant@example.com", "204681"), null);
+
+  shouldFail = false;
+  await auth.requestOtp("merchant@example.com");
+  assert.deepEqual(deliveredCodes, ["204681"]);
+  assert.equal((await auth.verifyOtp("merchant@example.com", "204681")).email, "merchant@example.com");
+});
+
+test("OTP delivery reports provider HTTP failures without exposing email content", async () => {
+  await assert.rejects(
+    sendOtpEmail(
+      { resendApiKey: "test-key", otpFromEmail: "SwiftPay <login@example.com>" },
+      "merchant@example.com",
+      "204681",
+      async () => new Response(JSON.stringify({
+        name: "validation_error",
+        message: "The sender domain is not verified",
+        recipient: "merchant@example.com"
+      }), { status: 403 })
+    ),
+    (error) => {
+      assert.match(error.message, /HTTP 403, validation_error/);
+      assert.doesNotMatch(error.message, /not verified|merchant@example\.com/);
+      return true;
+    }
+  );
 });

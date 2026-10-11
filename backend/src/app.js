@@ -94,8 +94,9 @@ export function createApp({ config, fetchImpl = fetch, verifyAccessToken, reques
     const input = parse(z.object({ email: z.string().trim().email().max(255) }).strict(), req.body);
     try {
       await requestOtp(input.email);
-    } catch {
-      throw new SwiftPayError(503, "Sign-in email could not be sent; try again later");
+    } catch (error) {
+      console.error("OTP email delivery failed:", error.message);
+      return res.status(503).json({ error: "Sign-in email could not be sent; try again later" });
     }
     res.status(202).json({ status: "accepted" });
   }));

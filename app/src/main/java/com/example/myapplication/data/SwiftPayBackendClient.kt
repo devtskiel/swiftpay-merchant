@@ -30,6 +30,7 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class SwiftPayService(
     private val backendBaseUrl: String = BuildConfig.PAYMENT_BACKEND_URL,
@@ -47,7 +48,10 @@ class SwiftPayService(
             }.build()
             chain.proceed(request)
         }
-        val client = OkHttpClient.Builder().addInterceptor(authInterceptor).build()
+        val client = OkHttpClient.Builder()
+            .callTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor(authInterceptor)
+            .build()
         Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(client)
